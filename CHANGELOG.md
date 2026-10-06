@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-10-06
+
+### Changed
+
+- Released to npm: the package is now published on [npmjs.org](https://www.npmjs.com/package/@msameim181/iran-map-vue) as well as GitHub Packages, from the release workflow via trusted publishing (OIDC, with provenance). No code changes in the library.
+- Demo page title and description now say "Iran Map for Vue" (matching the React package).
+
 ## [0.2.0] - 2026-10-06
 
 Hardening release from two independent reviews of 0.1.0. Contains breaking packaging changes (see Changed).
