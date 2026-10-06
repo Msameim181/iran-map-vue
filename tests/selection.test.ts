@@ -147,6 +147,6 @@ describe('Dismissible map selection', () => {
     await wrapper.setProps({ selectedArea: 'tehran' })
     expect(byTestId('iran-map-province-tehran').getAttribute('aria-pressed')).toBe('true')
     await click(document.body)
-    expect(onUpdate).toHaveBeenLastCalledWith(undefined)
+    expect(onUpdate).toHaveBeenLastCalledWith(null)
   })
 })

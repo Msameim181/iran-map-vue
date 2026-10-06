@@ -1,6 +1,13 @@
 // The ONLY module that talks to @msameim181/iran-map-core runtime APIs.
 // Names below follow the draft API relayed by the core session; adjust here when it is frozen.
-import { buildMapModel, getAreaTooltip, getCapitalTooltip, getIslandTooltip, toPublicArea, toPublicIsland } from '@msameim181/iran-map-core'
+import {
+  buildMapModel,
+  getAreaTooltip,
+  getCapitalTooltip,
+  getIslandTooltip,
+  toPublicArea,
+  toPublicIsland,
+} from '@msameim181/iran-map-core'
 import type { IranMapCatalogs, IranMapModel, IranMapModelOptions } from '@msameim181/iran-map-core'
 
 export type { IranMapCatalogs, IranMapModel, IranMapModelOptions }
