@@ -10,8 +10,10 @@ const click = async (el: Element) => {
   el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await nextTick()
 }
-const key = async (el: Element, pressed: string) => {
-  el.dispatchEvent(new KeyboardEvent('keydown', { key: pressed, bubbles: true, cancelable: true }))
+const key = async (el: Element, pressed: string, init: KeyboardEventInit = {}) => {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: pressed, bubbles: true, cancelable: true, ...init }))
+  // Space activates on keyup, like a native button.
+  if (pressed === ' ') el.dispatchEvent(new KeyboardEvent('keyup', { key: pressed, bubbles: true, cancelable: true }))
   await nextTick()
 }
 const base = { data, colorBands: bands, selectedAreaColor: '#123f4b' }
@@ -151,14 +153,15 @@ describe('Dismissible map selection', () => {
   })
 
   it('shows the native tooltip on hover/focus and dismisses it on an outside tap', async () => {
-    const wrapper = mountAttached(IranMap, { props: { data } })
-    const tooltip = wrapper.get('.iran-map-tooltip').element as HTMLElement
+    mountAttached(IranMap, { props: { data } })
     const area = byTestId('iran-map-province-tehran')
-    expect(tooltip.hidden).toBe(true)
+    // Created lazily, in <body>, on first use.
+    expect(document.querySelector('.iran-map-tooltip')).toBeNull()
 
     // Browsers emulate hover on tap, so a touch tap arrives as mouseover + click.
     area.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: 10, clientY: 10 }))
     await nextTick()
+    const tooltip = document.querySelector('.iran-map-tooltip') as HTMLElement
     expect(tooltip.hidden).toBe(false)
     expect(tooltip.textContent).toBe(area.getAttribute('aria-label'))
 

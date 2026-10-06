@@ -82,7 +82,11 @@ describe('Standalone ScoreBands', () => {
     })
     const wrapper = mountAttached(Harness)
     const root = wrapper.element as HTMLElement
-    await type(field(band(1), 'Maximum (exclusive)'), '')
+    const max = field(band(1), 'Maximum (exclusive)')
+    await type(max, '')
+    expect(hasText(root, 'All values')).toBe(false) // held back while typing
+    max.dispatchEvent(new Event('change', { bubbles: true })) // blur/Enter commits the empty bound
+    await nextTick()
     expect(hasText(root, 'All values')).toBe(true)
     await type(field(band(1), 'Label'), 'Custom category')
     expect(hasText(root, 'Custom category')).toBe(true)
@@ -137,5 +141,29 @@ describe('Standalone ScoreBands', () => {
     expect(hasText(wrapper.element, 'Unavailable')).toBe(true)
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
     expect(hasText(wrapper.element, 'No bands configured.')).toBe(true)
+  })
+
+  it('does not commit an empty bound while typing a negative number, only on blur', async () => {
+    const onChange = vi.fn()
+    const wrapper = mountAttached(ScoreBands, {
+      props: { bands: [{ min: 10, max: 50, color: '#123456' }], scale: 'numeric', min: -100, max: 100, onChange },
+    })
+    const minimum = field(wrapper.element, 'Minimum (inclusive)')
+    await type(minimum, '') // a number input reports '' for the partial entry "-"
+    expect(onChange).not.toHaveBeenCalled()
+    await type(minimum, '-5')
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenLastCalledWith([{ min: -5, max: 50, color: '#123456' }])
+  })
+
+  it('shows the editor when a listener is added after mount, or when editable is set', async () => {
+    const wrapper = mountAttached(ScoreBands, { props: { bands: initialBands } })
+    expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(false)
+    await wrapper.setProps({ onChange: () => undefined })
+    expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(true)
+    await wrapper.setProps({ onChange: undefined, editable: true })
+    expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(true)
+    await wrapper.setProps({ editable: false })
+    expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(false)
   })
 })

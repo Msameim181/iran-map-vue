@@ -18,6 +18,7 @@ module.exports = {
   overrides: [{ files: ['tests/**'], rules: { 'vue/one-component-per-file': 'off' } }],
   rules: {
     '@typescript-eslint/no-non-null-assertion': 'off',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     '@typescript-eslint/ban-ts-comment': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
     'vue/multi-word-component-names': 'off',

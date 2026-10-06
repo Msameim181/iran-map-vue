@@ -1,14 +1,18 @@
-import type { PropType } from 'vue'
+import type { ExtractPublicPropTypes, PropType } from 'vue'
 import { iranMapDefaults } from '@msameim181/iran-map-core'
 import type {
+  IranMapArea,
+  IranMapCapital,
   IranMapCapitalLayer,
   IranMapCatalogs,
   IranMapColorBand,
+  IranMapIsland,
   IranMapMode,
   IranMapRegion,
   IranMapValue,
   RegionAggregation,
-} from './types'
+  SelectedProvince,
+} from './types.js'
 
 const d = iranMapDefaults
 
@@ -22,7 +26,10 @@ const d = iranMapDefaults
  */
 export const iranMapProps = {
   data: { type: Object as PropType<Record<string, IranMapValue>>, required: true as const },
-  /** Catalog overrides merged over the entry's defaults (lean root, full preset in `/full`). */
+  /**
+   * Catalog overrides merged over the entry's defaults (lean root, full preset in `/full`).
+   * Replace the object (or hold it in a `shallowRef`) to change it; do not mutate loaded arrays.
+   */
   catalogs: { type: Object as PropType<Partial<IranMapCatalogs>>, default: undefined },
   width: { type: [Number, String] as PropType<number | string>, default: d.width },
   /** Legacy RGB triplet for automatic gradient coloring, e.g. "30, 70, 181". */
@@ -60,12 +67,16 @@ export const iranMapProps = {
   showIslandLabels: { type: Boolean, default: d.showIslandLabels },
 }
 
-export const iranMapEmits = [
-  'select',
-  'deselect',
-  'hover',
-  'capital-select',
-  'island-select',
-  'select-province',
-  'update:selectedArea',
-]
+export type IranMapProps = ExtractPublicPropTypes<typeof iranMapProps>
+
+/** Typed emits: payloads show up in the generated declarations and in editors. */
+export const iranMapEmits = {
+  select: (_area: IranMapArea) => true,
+  deselect: () => true,
+  hover: (_area: IranMapArea | null) => true,
+  'capital-select': (_capital: IranMapCapital) => true,
+  'island-select': (_island: IranMapIsland, _area: IranMapArea) => true,
+  /** Legacy `selectProvinceHandler`; `{ name: undefined, faName: undefined }` on deselect. */
+  'select-province': (_province: SelectedProvince) => true,
+  'update:selectedArea': (_id: string | null) => true,
+}

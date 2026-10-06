@@ -1,5 +1,5 @@
 import { computed, defineComponent, getCurrentInstance, h, ref, watch } from 'vue'
-import type { PropType, VNode } from 'vue'
+import type { ExtractPublicPropTypes, PropType, VNode } from 'vue'
 import {
   addBand,
   applyDrafts,
@@ -20,27 +20,38 @@ import {
   updateBand,
 } from '@msameim181/iran-map-core'
 import type { IranMapColorBand, ScoreBandDrafts, ScoreBandField, ScoreBandScale } from '@msameim181/iran-map-core'
+import { hasListener } from './listeners.js'
 
 const FIELDS: ScoreBandField[] = ['min', 'max']
 
-export const ScoreBands = defineComponent({
+const scoreBandsProps = {
+  bands: { type: Array as PropType<IranMapColorBand[]>, required: true as const },
+  scale: { type: String as PropType<ScoreBandScale>, default: d.scale },
+  /** Display domain. Defaults to 0–100; numeric scales may use any finite x–y domain. */
+  min: { type: Number, default: d.min },
+  max: { type: Number, default: d.max },
+  metricLabel: { type: String, default: d.metricLabel },
+  orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: d.orientation },
+  formatValue: { type: Function as PropType<(value: number) => string>, default: String },
+  showNoData: { type: Boolean, default: d.showNoData },
+  noDataColor: { type: String, default: d.noDataColor },
+  noDataLabel: { type: String, default: d.noDataLabel },
+  className: { type: String, default: '' },
+  /**
+   * Show the editor. Defaults to "a `change` or `update:bands` listener is attached" (checked on
+   * every render); set it explicitly when listeners are added or removed dynamically.
+   */
+  editable: { type: Boolean, default: undefined },
+}
+
+export const ScoreBands = /* @__PURE__ */ defineComponent({
   name: 'ScoreBands',
-  props: {
-    bands: { type: Array as PropType<IranMapColorBand[]>, required: true },
-    scale: { type: String as PropType<ScoreBandScale>, default: d.scale },
-    /** Display domain. Defaults to 0–100; numeric scales may use any finite x–y domain. */
-    min: { type: Number, default: d.min },
-    max: { type: Number, default: d.max },
-    metricLabel: { type: String, default: d.metricLabel },
-    orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: d.orientation },
-    formatValue: { type: Function as PropType<(value: number) => string>, default: String },
-    showNoData: { type: Boolean, default: d.showNoData },
-    noDataColor: { type: String, default: d.noDataColor },
-    noDataLabel: { type: String, default: d.noDataLabel },
-    className: { type: String, default: '' },
-  },
+  props: scoreBandsProps,
   // `change` (React onChange equivalent) and `update:bands` (v-model:bands) carry the same payload.
-  emits: ['change', 'update:bands'],
+  emits: {
+    change: (_bands: IranMapColorBand[]) => true,
+    'update:bands': (_bands: IranMapColorBand[]) => true,
+  },
   setup(props, { emit }) {
     const instance = getCurrentInstance()!
     const drafts = ref<ScoreBandDrafts>({})
@@ -54,15 +65,28 @@ export const ScoreBands = defineComponent({
       emit('change', next)
       emit('update:bands', next)
     }
-    // Editor mode is on iff the parent listens, like React's optional onChange.
-    const editable = () => {
-      const vnodeProps = instance.vnode.props || {}
-      return !!(vnodeProps.onChange || vnodeProps['onUpdate:bands'])
-    }
-    const onBound = (index: number, field: ScoreBandField, value: string) => {
+    // Editor mode defaults to "the parent listens", like React's optional onChange.
+    const editable = () => props.editable ?? hasListener(instance, 'onChange', 'onUpdate:bands')
+    const commitBound = (index: number, field: ScoreBandField, value: string) => {
       const edit = editBound(props.bands, drafts.value, index, field, value, props.scale)
       drafts.value = edit.drafts
       if (edit.bands) commit(edit.bands)
+    }
+    // While typing, an empty value is usually a partial entry ("-") or a field about to be
+    // retyped, so it is held back as a draft and only committed (as an unbounded bound) on
+    // blur/Enter. A partial entry still pending on blur is never committed.
+    const onBoundInput = (index: number, field: ScoreBandField, event: Event) => {
+      const input = event.target as HTMLInputElement
+      if (input.value.trim() === '') {
+        drafts.value = { ...drafts.value, [getDraftKey(index, field)]: input.value }
+        return
+      }
+      commitBound(index, field, input.value)
+    }
+    const onBoundChange = (index: number, field: ScoreBandField, event: Event) => {
+      const input = event.target as HTMLInputElement
+      if (input.validity?.badInput) return
+      commitBound(index, field, input.value)
     }
     const textInput = (handler: (value: string) => void) => (event: Event) =>
       handler((event.target as HTMLInputElement).value)
@@ -94,7 +118,8 @@ export const ScoreBands = defineComponent({
                   placeholder: 'Unbounded',
                   value: drafts.value[getDraftKey(index, field)] ?? band[field] ?? '',
                   'aria-invalid': !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
-                  onInput: textInput((value) => onBound(index, field, value)),
+                  onInput: (event: Event) => onBoundInput(index, field, event),
+                  onChange: (event: Event) => onBoundChange(index, field, event),
                 }),
               ]),
             ),
@@ -162,3 +187,6 @@ export const ScoreBands = defineComponent({
     }
   },
 })
+
+/** Props accepted by `ScoreBands`. */
+export type ScoreBandsProps = ExtractPublicPropTypes<typeof scoreBandsProps>
