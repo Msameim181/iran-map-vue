@@ -113,8 +113,11 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
           catalogs.value,
         )
         for (const warning of result.warnings) {
+          // Core also reports configuration mistakes (unknown focusProvince, duplicate region ids...).
           warnOnce(
-            `${warning}. Import IranMap from '@msameim181/iran-map-vue/full' (or /lite) or pass the catalog via the \`catalogs\` prop.`,
+            /catalog/i.test(warning)
+              ? `${warning}. Import IranMap from '@msameim181/iran-map-vue/full' (or /lite) or pass the catalog via the \`catalogs\` prop.`
+              : warning,
           )
         }
         return result

@@ -1,20 +1,21 @@
-import { computed, defineComponent, getCurrentInstance, h, ref, watch } from 'vue'
+import { computed, defineComponent, getCurrentInstance, h, ref, toRaw, watch } from 'vue'
 import type { ExtractPublicPropTypes, PropType, VNode } from 'vue'
 import {
   addBand,
   applyDrafts,
-  editBound,
+  commitDraft,
   getBoundInputLimits,
   getColorInputValue,
   getDomainLabel,
   getDraftKey,
+  setDraft,
   getLegendItems,
   getScoreBandsHeading,
   getScoreBandsLabel,
   hasInvalidBands,
   isValidBand,
   isValidDomain,
-  removeBand,
+  removeBandWithDrafts,
   scoreBandsDefaults as d,
   scoreBandsText as text,
   updateBand,
@@ -55,38 +56,41 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
   setup(props, { emit }) {
     const instance = getCurrentInstance()!
     const drafts = ref<ScoreBandDrafts>({})
+    // Drafts belong to the committed bands we emitted; bands replaced from outside reset them.
+    let lastEmitted: IranMapColorBand[] | undefined
     watch(
       () => props.bands,
-      () => (drafts.value = {}),
+      (bands) => {
+        // toRaw: a parent holding the bands in a ref sees (and passes back) a reactive proxy.
+        if (toRaw(bands) !== lastEmitted) drafts.value = {}
+      },
     )
 
     const validDomain = computed(() => isValidDomain(props.min, props.max, props.scale))
     const commit = (next: IranMapColorBand[]) => {
+      lastEmitted = toRaw(next)
       emit('change', next)
       emit('update:bands', next)
     }
     // Editor mode defaults to "the parent listens", like React's optional onChange.
     const editable = () => props.editable ?? hasListener(instance, 'onChange', 'onUpdate:bands')
-    const commitBound = (index: number, field: ScoreBandField, value: string) => {
-      const edit = editBound(props.bands, drafts.value, index, field, value, props.scale)
-      drafts.value = edit.drafts
-      if (edit.bands) commit(edit.bands)
-    }
-    // While typing, an empty value is usually a partial entry ("-") or a field about to be
-    // retyped, so it is held back as a draft and only committed (as an unbounded bound) on
-    // blur/Enter. A partial entry still pending on blur is never committed.
+    // Typing only records text; the band changes on blur/Enter (the native `change` event), when a
+    // blank bound becomes "unbounded". A partial entry such as "-" (badInput) never commits.
     const onBoundInput = (index: number, field: ScoreBandField, event: Event) => {
-      const input = event.target as HTMLInputElement
-      if (input.value.trim() === '') {
-        drafts.value = { ...drafts.value, [getDraftKey(index, field)]: input.value }
-        return
-      }
-      commitBound(index, field, input.value)
+      drafts.value = setDraft(drafts.value, index, field, (event.target as HTMLInputElement).value)
     }
     const onBoundChange = (index: number, field: ScoreBandField, event: Event) => {
       const input = event.target as HTMLInputElement
       if (input.validity?.badInput) return
-      commitBound(index, field, input.value)
+      const withText = setDraft(drafts.value, index, field, input.value)
+      const edit = commitDraft(props.bands, withText, index, props.scale)
+      drafts.value = edit.drafts
+      if (edit.bands) commit(edit.bands)
+    }
+    const removeAt = (index: number) => {
+      const result = removeBandWithDrafts(props.bands, drafts.value, index)
+      drafts.value = result.drafts
+      commit(result.bands)
     }
     const textInput = (handler: (value: string) => void) => (event: Event) =>
       handler((event.target as HTMLInputElement).value)
@@ -136,7 +140,7 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
               {
                 type: 'button',
                 'aria-label': `Remove band ${index + 1}`,
-                onClick: () => commit(removeBand(props.bands, index)),
+                onClick: () => removeAt(index),
               },
               text.removeBand,
             ),
@@ -148,7 +152,7 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
           {
             type: 'button',
             disabled: !validDomain.value,
-            onClick: () => commit(addBand(props.bands, props.min, props.max)),
+            onClick: () => commit(addBand(props.bands, props.min)),
           },
           text.addBand,
         ),

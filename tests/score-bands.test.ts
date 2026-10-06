@@ -25,6 +25,13 @@ const type = async (input: HTMLInputElement, value: string) => {
   await nextTick()
 }
 
+/** Type and then blur/press Enter: bounds only commit on the native `change` event. */
+const commit = async (input: HTMLInputElement, value: string) => {
+  await type(input, value)
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  await nextTick()
+}
+
 const band = (n: number) => document.querySelectorAll('fieldset')[n - 1] as HTMLFieldSetElement
 
 describe('Standalone ScoreBands', () => {
@@ -56,7 +63,7 @@ describe('Standalone ScoreBands', () => {
     expect(hasText(wrapper.element, '-500 USD – 1500 USD')).toBe(true)
     const minimum = field(wrapper.element, 'Minimum (inclusive)')
     expect(minimum.min).toBe('')
-    await type(minimum, '-350.75')
+    await commit(minimum, '-350.75')
     expect(onChange).toHaveBeenLastCalledWith([{ min: -350.75, max: 1200.25, color: '#123456' }])
   })
 
@@ -64,12 +71,12 @@ describe('Standalone ScoreBands', () => {
     const onChange = vi.fn()
     const wrapper = mountAttached(ScoreBands, { props: { bands: [{ min: 0, max: 50, color: '#123456' }], onChange } })
     const minimum = field(wrapper.element, 'Minimum (inclusive)')
-    await type(minimum, '60')
+    await commit(minimum, '60')
     expect(onChange).not.toHaveBeenCalled()
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
-    await type(minimum, '-10')
+    await commit(minimum, '-10')
     expect(onChange).not.toHaveBeenCalled()
-    await type(minimum, '20')
+    await commit(minimum, '20')
     expect(onChange).toHaveBeenLastCalledWith([{ min: 20, max: 50, color: '#123456' }])
   })
 
@@ -85,8 +92,7 @@ describe('Standalone ScoreBands', () => {
     const max = field(band(1), 'Maximum (exclusive)')
     await type(max, '')
     expect(hasText(root, 'All values')).toBe(false) // held back while typing
-    max.dispatchEvent(new Event('change', { bubbles: true })) // blur/Enter commits the empty bound
-    await nextTick()
+    await commit(max, '') // blur/Enter commits the empty bound as unbounded
     expect(hasText(root, 'All values')).toBe(true)
     await type(field(band(1), 'Label'), 'Custom category')
     expect(hasText(root, 'Custom category')).toBe(true)
@@ -143,17 +149,53 @@ describe('Standalone ScoreBands', () => {
     expect(hasText(wrapper.element, 'No bands configured.')).toBe(true)
   })
 
-  it('does not commit an empty bound while typing a negative number, only on blur', async () => {
+  it('does not change bands while typing; blur/Enter commits, and a blank bound commits as unbounded', async () => {
     const onChange = vi.fn()
     const wrapper = mountAttached(ScoreBands, {
       props: { bands: [{ min: 10, max: 50, color: '#123456' }], scale: 'numeric', min: -100, max: 100, onChange },
     })
     const minimum = field(wrapper.element, 'Minimum (inclusive)')
     await type(minimum, '') // a number input reports '' for the partial entry "-"
-    expect(onChange).not.toHaveBeenCalled()
     await type(minimum, '-5')
+    expect(onChange).not.toHaveBeenCalled()
+    minimum.dispatchEvent(new Event('change', { bubbles: true }))
+    await nextTick()
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange).toHaveBeenLastCalledWith([{ min: -5, max: 50, color: '#123456' }])
+  })
+
+  it('keeps pending drafts of other bands, re-keys them when a band is removed, and adds open-ended bands', async () => {
+    const Harness = defineComponent({
+      setup() {
+        const bands = ref<IranMapColorBand[]>([
+          { min: 0, max: 30, color: '#111111' },
+          { min: 30, max: 60, color: '#222222' },
+          { min: 60, color: '#333333' },
+        ])
+        return () => h(ScoreBands, { bands: bands.value, onChange: (next: IranMapColorBand[]) => (bands.value = next) })
+      },
+    })
+    const wrapper = mountAttached(Harness)
+    // Invalid pending draft on band 3 (kept: it does not match a valid band).
+    await type(field(band(3), 'Minimum (inclusive)'), '200')
+    // Committing band 1 must not discard band 3's draft.
+    await commit(field(band(1), 'Maximum (exclusive)'), '25')
+    expect(field(band(3), 'Minimum (inclusive)').value).toBe('200')
+    // Removing band 2 shifts band 3 to position 2 together with its draft.
+    const remove = Array.from((wrapper.element as HTMLElement).querySelectorAll('button')).find(
+      (b) => b.ariaLabel === 'Remove band 2',
+    )!
+    remove.click()
+    await nextTick()
+    expect(document.querySelectorAll('fieldset')).toHaveLength(2)
+    expect(field(band(2), 'Minimum (inclusive)').value).toBe('200')
+    // New bands are open-ended, so a score of 100 stays covered.
+    const add = Array.from((wrapper.element as HTMLElement).querySelectorAll('button')).find(
+      (b) => b.textContent === 'Add band',
+    )!
+    add.click()
+    await nextTick()
+    expect(field(band(3), 'Maximum (exclusive)').value).toBe('')
   })
 
   it('shows the editor when a listener is added after mount, or when editable is set', async () => {
