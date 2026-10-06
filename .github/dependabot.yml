@@ -29,14 +29,20 @@ updates:
       build-test:
         patterns: ['vite', '@vitejs/*', 'vitest*', '@vitest/*', 'jsdom']
         update-types: [minor, patch]
-    # Held back until upgraded deliberately: ESLint 9+ needs flat config (this repo uses legacy
-    # .eslintrc on 8.x), TypeScript 6.1+ and jsdom 30+ break the current tooling, Vite majors are manual.
+    # Held back until upgraded deliberately (tracking issue #13): ESLint 9+ needs flat config (this repo
+    # uses legacy .eslintrc on 8.x); TypeScript 6 breaks the declaration build (TS2882 on ./styles.css)
+    # until its migration; jsdom 30+, Vitest majors and Vite majors raise the dev tooling Node floor;
+    # @types/node majors would let library types outrun the lowest supported Node (18).
     ignore:
       - dependency-name: eslint
         versions: ['>=9.0.0']
       - dependency-name: typescript
-        versions: ['>=6.1.0']
+        versions: ['>=6.0.0']
       - dependency-name: jsdom
         versions: ['>=30.0.0']
       - dependency-name: vite
+        update-types: ['version-update:semver-major']
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
