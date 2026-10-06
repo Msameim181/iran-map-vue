@@ -26,6 +26,8 @@ Vue 3.5 or newer is a peer dependency. `@msameim181/iran-map-core` (data and log
 npm install @msameim181/iran-map-vue vue
 ```
 
+Releases are published to [npm](https://www.npmjs.com/package/@msameim181/iran-map-vue) from GitHub Actions with provenance (trusted publishing), so each version links back to the commit and workflow run that built it.
+
 The package is also published to GitHub Packages. That registry requires authentication **even for public packages**: create a personal access token with the `read:packages` scope, then add to your project's `.npmrc`:
 
 ```ini
