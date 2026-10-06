@@ -78,11 +78,10 @@ import { countyBoundaries } from '@msameim181/iran-map-core/counties'
 
 ### Styles
 
-The package CSS (tooltip) is linked automatically from the JS entry. Map and score-band styles come from core:
+One stylesheet covers the map, the score bands and the tooltip (it includes core's `styles.css`). Importing the package links it automatically in bundlers that handle CSS. For SSR setups that skip side-effect CSS, import it explicitly:
 
 ```ts
-import '@msameim181/iran-map-core/styles.css'
-import '@msameim181/iran-map-vue/style.css' // explicit import, needed for SSR frameworks that skip side-effect CSS
+import '@msameim181/iran-map-vue/style.css'
 ```
 
 ## Events
@@ -112,6 +111,10 @@ A single native element per map, with no dependency:
 - **Touch:** a tap shows the tooltip next to the tap point (via the browser's emulated hover) and selects the area; tapping anywhere else dismisses it.
 
 The text is the element's `aria-label`, so screen readers get the same information.
+
+## Performance
+
+Rendering is cheap (a province map is about 500 DOM nodes; the county map about 3,200), and pointer events use one delegated listener per map. The map rebuilds its model whenever a prop _identity_ changes, so keep object and array props stable: define `regions`, `colorBands`, `detailedCounties` and `data` once (a `ref`, `computed` or constant) instead of writing a fresh `[]` or `{}` in the template of a component that re-renders often.
 
 ## Props
 

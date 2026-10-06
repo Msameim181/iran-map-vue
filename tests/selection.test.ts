@@ -149,4 +149,25 @@ describe('Dismissible map selection', () => {
     await click(document.body)
     expect(onUpdate).toHaveBeenLastCalledWith(null)
   })
+
+  it('shows the native tooltip on hover/focus and dismisses it on an outside tap', async () => {
+    const wrapper = mountAttached(IranMap, { props: { data } })
+    const tooltip = wrapper.get('.iran-map-tooltip').element as HTMLElement
+    const area = byTestId('iran-map-province-tehran')
+    expect(tooltip.hidden).toBe(true)
+
+    // Browsers emulate hover on tap, so a touch tap arrives as mouseover + click.
+    area.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: 10, clientY: 10 }))
+    await nextTick()
+    expect(tooltip.hidden).toBe(false)
+    expect(tooltip.textContent).toBe(area.getAttribute('aria-label'))
+
+    await click(document.body)
+    expect(tooltip.hidden).toBe(true)
+
+    area.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+    expect(tooltip.hidden).toBe(false)
+    await key(area, 'Escape')
+    expect(tooltip.hidden).toBe(true)
+  })
 })

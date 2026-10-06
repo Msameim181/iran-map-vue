@@ -1,4 +1,7 @@
-/* Native tooltip. Map and score-band styles come from @msameim181/iran-map-core/styles.css. */
+/* Map and score-band styles from core, bundled into this package's single style.css. */
+@import '@msameim181/iran-map-core/styles.css';
+
+/* Native tooltip. */
 .iran-map-tooltip {
   position: fixed;
   top: 0;

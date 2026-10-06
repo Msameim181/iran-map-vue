@@ -160,12 +160,16 @@ const mapKey = computed(
       demoMode.value === 'focus' ? `${focusProvinceId.value}-${!!disabledProvinceValues[focusProvinceId.value]}` : ''
     }`,
 )
+// Stable array identities: a fresh `[]` per render would make the map rebuild its model on every hover.
+const noRegions: IranMapRegion[] = []
+const noCounties: string[] = []
+const activeRegions = computed(() => (demoMode.value === 'region' ? regions : noRegions))
 const detailedCounties = computed(() =>
   demoMode.value === 'focus'
     ? selectedCountyIds.value
     : demoMode.value === 'mixed' || demoMode.value === 'region'
       ? detailCounties
-      : [],
+      : noCounties,
 )
 
 const setMode = (mode: DemoMode) => {
@@ -413,7 +417,7 @@ const onIslandSelect = (island: IranMapIsland) => {
           <IranMap
             :mode="activeMode"
             :focus-province="demoMode === 'focus' ? focusProvinceId : undefined"
-            :regions="demoMode === 'region' ? regions : []"
+            :regions="activeRegions"
             :detailed-counties="detailedCounties"
             :data="data"
             :color-bands="colorBands"
