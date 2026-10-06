@@ -260,4 +260,23 @@ describe('Standalone ScoreBands', () => {
     expect(minimum.getAttribute('aria-invalid')).toBe('true')
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
   })
+
+  it('drops an earlier blank draft when the field then holds a partial entry', async () => {
+    const onChange = vi.fn()
+    const wrapper = mountAttached(ScoreBands, {
+      props: { bands: [{ min: 10, max: 50, color: '#123456' }], scale: 'numeric', min: -100, max: 100, onChange },
+    })
+    const minimum = field(wrapper.element, 'Minimum (inclusive)')
+    const maximum = field(wrapper.element, 'Maximum (exclusive)')
+    await type(minimum, '') // cleared: records a blank draft
+    Object.defineProperty(minimum, 'validity', { value: { badInput: true }, configurable: true })
+    await type(minimum, '') // then "-": a partial entry replaces that blank draft
+    await commit(maximum, '60')
+    expect(onChange).toHaveBeenLastCalledWith([{ min: 10, max: 60, color: '#123456' }])
+  })
+
+  it('shows the editor for a .once listener', () => {
+    const wrapper = mountAttached(ScoreBands, { props: { bands: initialBands, onChangeOnce: () => undefined } })
+    expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(true)
+  })
 })

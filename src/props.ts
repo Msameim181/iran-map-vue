@@ -59,6 +59,11 @@ export const iranMapProps = {
   capitalMarkerColor: { type: String, default: d.capitalMarkerColor },
   capitalMarkerSize: { type: Number, default: d.capitalMarkerSize },
   showCapitalLabels: { type: Boolean, default: d.showCapitalLabels },
+  /**
+   * Make capitals focusable buttons. Defaults to "a `capital-select` listener is attached" (checked on
+   * every render); set it explicitly when the listener is added or removed dynamically.
+   */
+  capitalsInteractive: { type: Boolean, default: undefined },
   showWater: { type: Boolean, default: undefined },
   waterColor: { type: String, default: d.waterColor },
   seaLabelColor: { type: String, default: d.seaLabelColor },

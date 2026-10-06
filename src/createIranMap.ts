@@ -141,8 +141,11 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
           }
         },
       )
+      // Whether the selected area has been part of the current model; see the watch below.
+      let selectionWasPresent = false
       const setSelected = (id: string | undefined) => {
         inner.value = id
+        selectionWasPresent = id !== undefined
         emit('update:selectedArea', id ?? null)
       }
       const clearSelection = () => {
@@ -162,11 +165,35 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         if (result.province) emit('select-province', result.province)
       }
 
+      // A selected area that leaves the model (mode switch, focus change, data swap) is deselected
+      // once, with the usual events, so a stale id never lingers in v-model or reappears when the
+      // area comes back. An initial/default selection that was never in the model is dropped
+      // silently (only when uncontrolled; a controlled value belongs to the parent).
+      watch(
+        [model, selectedId],
+        ([m, id]) => {
+          if (id === undefined) {
+            selectionWasPresent = false
+            return
+          }
+          if (m.areas.some((area) => area.id === id)) {
+            selectionWasPresent = true
+          } else if (selectionWasPresent) {
+            selectionWasPresent = false
+            clearSelection()
+          } else if (props.selectedArea === undefined) {
+            inner.value = undefined
+          }
+        },
+        { immediate: true },
+      )
+
       // --- native tooltip + delegated events ---
       const wrapperRef = ref<HTMLElement>()
       let tooltip: Tooltip | undefined
       let activeEl: Element | null = null
       let hoverEmitted = false
+      let spaceTarget: Element | null = null
       const tip = () => (tooltip ??= createTooltip(wrapperRef.value!.ownerDocument))
       const hideTip = () => {
         tooltip?.hide()
@@ -245,6 +272,7 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         emitHover(el, true)
       }
       const onFocusout = (event: FocusEvent) => {
+        spaceTarget = null // a Space press that started here must not activate after focus left
         const el = interactiveOf(event.target)
         if (el) leave(el)
       }
@@ -253,9 +281,11 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         if (el) activate(el)
       }
       // Enter activates on keydown (ignoring auto-repeat); Space on keyup, like a native button.
-      let spaceTarget: Element | null = null
       const onKeydown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') return hideTip()
+        if (event.key === 'Escape') {
+          hideTip()
+          return clearSelection()
+        }
         const el = interactiveOf(event.target)
         if (!el) return
         if (event.key === ' ') {
@@ -324,7 +354,15 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         const selected = selectedId.value
         const showWater = props.showWater ?? iranMapDefaults.showWater
         const showIslands = props.showIslands ?? iranMapDefaults.showIslands
-        const capitalsInteractive = hasListener(instance, 'onCapitalSelect')
+        const capitalsInteractive = props.capitalsInteractive ?? hasListener(instance, 'onCapitalSelect')
+        // Drop memo entries beyond the current model, so a county->province switch does not keep
+        // hundreds of stale vnodes alive.
+        areaCache.length = Math.min(areaCache.length, m.areas.length)
+        islandCache.length = Math.min(islandCache.length, showIslands ? m.islands.length : 0)
+        capitalCache.length = Math.min(capitalCache.length, m.capitals.length)
+        labelCache.length = Math.min(labelCache.length, m.showLabels ? m.areas.length : 0)
+        if (!showWater) water.length = 0
+        if (m.landBackgrounds.length === 0) land.length = 0
         const children: VNode[] = []
 
         if (showWater) {

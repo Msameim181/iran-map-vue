@@ -38,6 +38,8 @@ export const createTooltip = (doc: Document): Tooltip => {
   let originY = 0
   let frame = 0
   let pending: [number, number] | undefined
+  // What the tooltip is anchored to, so a text change can re-run placement with the new size.
+  let anchor: { x: number; y: number } | { element: Element } | undefined
 
   const place = (x: number, y: number, centered = false) => {
     const vw = doc.documentElement.clientWidth
@@ -50,6 +52,15 @@ export const createTooltip = (doc: Document): Tooltip => {
     left = Math.max(MARGIN, Math.min(left, vw - width - MARGIN))
     top = Math.max(MARGIN, top)
     el.style.transform = `translate(${Math.round(left - originX)}px, ${Math.round(top - originY)}px)`
+  }
+  const replace = () => {
+    if (!anchor) return
+    if ('element' in anchor) {
+      const rect = anchor.element.getBoundingClientRect()
+      place(rect.left + rect.width / 2, rect.top, true)
+    } else {
+      place(anchor.x, anchor.y)
+    }
   }
   const cancelFrame = () => {
     if (frame) win?.cancelAnimationFrame(frame)
@@ -71,21 +82,28 @@ export const createTooltip = (doc: Document): Tooltip => {
   return {
     showAtPoint(text, x, y) {
       reveal(text)
-      place(x, y)
+      anchor = { x, y }
+      replace()
     },
     showAtElement(text, element) {
       reveal(text)
-      const rect = element.getBoundingClientRect()
-      place(rect.left + rect.width / 2, rect.top, true)
+      anchor = { element }
+      replace()
     },
     move(x, y) {
       if (el.hidden) return
-      if (!win?.requestAnimationFrame) return place(x, y)
+      if (!win?.requestAnimationFrame) {
+        anchor = { x, y }
+        return replace()
+      }
       pending = [x, y]
       if (frame) return
       frame = win.requestAnimationFrame(() => {
         frame = 0
-        if (pending && !el.hidden) place(...pending)
+        if (pending && !el.hidden) {
+          anchor = { x: pending[0], y: pending[1] }
+          replace()
+        }
         pending = undefined
       })
     },
@@ -95,9 +113,11 @@ export const createTooltip = (doc: Document): Tooltip => {
       const box = el.getBoundingClientRect()
       width = box.width
       height = box.height
+      replace() // the new text may be wider or taller: keep the anchor, redo flip and clamp
     },
     hide() {
       cancelFrame()
+      anchor = undefined
       el.hidden = true
     },
     destroy() {

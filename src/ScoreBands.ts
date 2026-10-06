@@ -95,7 +95,16 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
       const key = getDraftKey(index, field)
       // Record no draft for a partial entry: it would later commit as "unbounded". Only a field
       // the person really cleared counts as blank.
-      if (input.validity?.badInput) return setPartial(key, true)
+      if (input.validity?.badInput) {
+        // Drop any earlier blank draft of this field (the person cleared it, then started "-"):
+        // otherwise committing the sibling bound would commit this field as unbounded.
+        if (drafts.value[key] !== undefined) {
+          const next = { ...drafts.value }
+          delete next[key]
+          drafts.value = next
+        }
+        return setPartial(key, true)
+      }
       setPartial(key, false)
       drafts.value = setDraft(drafts.value, index, field, input.value)
     }

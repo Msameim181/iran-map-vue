@@ -86,4 +86,30 @@ describe('createTooltip', () => {
     frames[0](0)
     expect(element().style.transform).toBe('translate(314px, 314px)')
   })
+
+  it('re-runs placement when the text changes under a stationary pointer', () => {
+    viewport(300, 200)
+    const tooltip = createTooltip(document)
+    // Width follows the text, 10px per character.
+    element().getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: element().textContent!.length * 10, height: 20 }) as DOMRect
+    tooltip.showAtPoint('ab', 100, 50)
+    expect(element().style.transform).toBe('translate(114px, 64px)')
+
+    tooltip.setText('a'.repeat(25)) // 250px wide: flips left of the pointer, then clamps to the viewport
+    expect(element().style.transform).toBe('translate(6px, 64px)')
+  })
+
+  it('re-centers a keyboard tooltip on its element when the text changes', () => {
+    viewport(300, 200)
+    const tooltip = createTooltip(document)
+    element().getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: element().textContent!.length * 10, height: 20 }) as DOMRect
+    const target = document.createElement('div')
+    target.getBoundingClientRect = () => ({ left: 140, top: 100, width: 20, height: 10 }) as DOMRect
+    tooltip.showAtElement('ab', target) // 20px wide, centered on x=150
+    expect(element().style.transform).toBe('translate(140px, 73px)')
+    tooltip.setText('a'.repeat(20)) // 200px wide
+    expect(element().style.transform).toBe('translate(50px, 73px)')
+  })
 })

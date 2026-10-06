@@ -125,3 +125,64 @@ describe('keyboard and focus', () => {
     expect(capital.getAttribute('role')).toBe('button')
   })
 })
+
+describe('selection vs model', () => {
+  it('deselects once when the selected area leaves the model and does not bring it back', async () => {
+    const onDeselect = vi.fn()
+    const onUpdate = vi.fn()
+    const onSelectProvince = vi.fn()
+    const wrapper = mountAttached(IranMap, {
+      props: { data, onDeselect, 'onUpdate:selectedArea': onUpdate, onSelectProvince },
+    })
+    await click(byTestId('iran-map-province-tehran'))
+    expect(onUpdate).toHaveBeenLastCalledWith('tehran')
+
+    await wrapper.setProps({ mode: 'county' }) // provinces are replaced by counties
+    await nextTick()
+    expect(onDeselect).toHaveBeenCalledTimes(1)
+    expect(onUpdate).toHaveBeenLastCalledWith(null)
+    expect(onSelectProvince).toHaveBeenLastCalledWith({ name: undefined, faName: undefined })
+
+    await click(document.body) // no stale selection left to dismiss
+    expect(onDeselect).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ mode: 'province' })
+    await nextTick()
+    expect(byTestId('iran-map-province-tehran').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('drops a default selection that is not in the model without emitting anything', async () => {
+    const onDeselect = vi.fn()
+    const onUpdate = vi.fn()
+    mountAttached(IranMap, {
+      props: { data, defaultSelectedArea: 'tehran.tehran', onDeselect, 'onUpdate:selectedArea': onUpdate },
+    })
+    await click(document.body)
+    expect(onDeselect).not.toHaveBeenCalled()
+    expect(onUpdate).not.toHaveBeenCalled()
+  })
+
+  it('clears the selection on Escape', async () => {
+    const onDeselect = vi.fn()
+    mountAttached(IranMap, { props: { data, onDeselect } })
+    const area = byTestId('iran-map-province-tehran')
+    await click(area)
+    area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(area.getAttribute('aria-pressed')).toBe('false')
+    expect(onDeselect).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('capital interactivity', () => {
+  it('recognizes .once listeners and honors an explicit capitalsInteractive prop', async () => {
+    const wrapper = mountAttached(IranMap, {
+      props: { data, capitalMarkers: 'province', onCapitalSelectOnce: () => undefined },
+    })
+    expect(byTestId('iran-map-capital-province-fars').getAttribute('role')).toBe('button')
+
+    await wrapper.setProps({ onCapitalSelectOnce: undefined, capitalsInteractive: true })
+    expect(byTestId('iran-map-capital-province-fars').getAttribute('tabindex')).toBe('0')
+    await wrapper.setProps({ capitalsInteractive: false, onCapitalSelect: () => undefined })
+    expect(byTestId('iran-map-capital-province-fars').getAttribute('role')).toBe('img')
+  })
+})

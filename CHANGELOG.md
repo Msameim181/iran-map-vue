@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-10-06
 
 Hardening release from two independent reviews of 0.1.0. Contains breaking packaging changes (see Changed).
 
@@ -10,7 +10,7 @@ Hardening release from two independent reviews of 0.1.0. Contains breaking packa
 
 - `/lite` entry bound to core's lite catalogs, plus catalog-free `/score-bands` and `/create` entries; all map entries re-export the catalogs they bind, `normalizeMapValue`, `createIranMap`, `ScoreBands` and the types (`IranMapProps`, `IranMapModel`, ...), for parity with the React package.
 - Demo: a "Data level" selector (Full / Standard / Lite / Mini) that loads core's presets lazily and shows their approximate sizes.
-- `ScoreBands` `editable` prop (listener detection stays the default); typed `ScoreBandsProps`.
+- `ScoreBands` `editable` and `IranMap` `capitalsInteractive` props (listener detection, including `.once`, stays the default); typed `ScoreBandsProps`.
 - Tooltip CSS variables (`--iran-map-tooltip-*`).
 - Typed `emits` (payloads visible in the declarations); dev warning when a controlled `selectedArea` becomes uncontrolled.
 - Tests: SSR (node environment), KeepAlive, removed hovered element, catalog identity and reactive replacement, tooltip placement, focus/hover, key repeat; CI smoke test of the packed package (Node 18/20/22, Vite SSR, `renderToString`), publint, are-the-types-wrong and bundle-size budgets.
@@ -31,6 +31,11 @@ Hardening release from two independent reviews of 0.1.0. Contains breaking packa
 ### Fixed
 
 - `IranMap` tooltip mispositioned inside transformed ancestors (0.1.0 follow-up).
+- A selected area that leaves the model (for example province to county mode) is now deselected once (`deselect`, `update:selectedArea` with `null`) instead of leaving a stale id that re-highlighted when switching back; a default selection that was never in the model is dropped silently.
+- Escape now clears the selection as well as hiding the tooltip (as in the React package).
+- The tooltip re-runs its placement when its text changes while the pointer or focus is stationary.
+- `ScoreBands`: a partial entry typed after clearing a bound no longer commits as unbounded when the sibling bound is committed.
+- Memo caches shrink with the model; a Space press no longer activates after focus has left the shape.
 
 ## [0.1.0] - 2026-10-06
 

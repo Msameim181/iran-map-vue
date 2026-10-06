@@ -33,6 +33,8 @@ The package is also published to GitHub Packages. That registry requires authent
 //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
 ```
 
+Note that mapping the whole `@msameim181` scope this way also resolves `@msameim181/iran-map-core` from GitHub Packages (it is published there too). If you only want this package from GitHub Packages and the rest from npm, install it once with an explicit registry instead: `npm install @msameim181/iran-map-vue --registry=https://npm.pkg.github.com`.
+
 Import the stylesheet once (the JavaScript never imports CSS, so it also loads under Node and SSR):
 
 ```ts
@@ -40,6 +42,12 @@ import '@msameim181/iran-map-vue/style.css'
 ```
 
 It includes core's map and score-band styles and the tooltip, so this single import is all you need.
+
+With TypeScript 5.6+ and `noUncheckedSideEffectImports`, tell the compiler about the CSS import once (for example in `env.d.ts`):
+
+```ts
+declare module '@msameim181/iran-map-vue/style.css'
+```
 
 ## Quick start
 
@@ -118,7 +126,7 @@ Clicking an area selects it; clicking it again, clicking the map background, or 
 
 `ScoreBands` renders as an editor when a `change` or `update:bands` listener is attached (checked on every render), or when `editable` is set explicitly; otherwise it is a read-only legend. In the editor, an empty bound is held back while you type and committed as unbounded on blur or Enter, so typing a negative number never flashes an empty bound.
 
-Capital markers are keyboard-focusable buttons only when a `capital-select` listener is attached; otherwise they only show their tooltip. The map itself is a labelled `role="group"`. Auto-repeat Enter is ignored and Space activates on key release, like a native button. Inside `<KeepAlive>`, a deactivated map stops listening for outside clicks and hides its tooltip.
+Capital markers are keyboard-focusable buttons only when a `capital-select` listener is attached; otherwise they only show their tooltip. The map itself is a labelled `role="group"`. Auto-repeat Enter is ignored and Space activates on key release, like a native button; Escape hides the tooltip and clears the selection. `@capital-select.once` counts as a listener; if a listener is added or removed dynamically, set `capitals-interactive` explicitly (Vue does not re-render a child when an event listener changes). Inside `<KeepAlive>`, a deactivated map stops listening for outside clicks and hides its tooltip.
 
 ## Tooltip
 
@@ -138,7 +146,7 @@ Rendering is cheap (a province map is about 500 DOM nodes; the county map about 
 
 ## Props
 
-Same names, types and defaults as the React component (use kebab-case in templates).
+Same names, types and defaults as the React component (use kebab-case in templates), except the React-only tooltip props (`tooltip`, `tooltipId`, `tooltipDisableStyleInjection`); the Vue package has `capitalsInteractive` and (on `ScoreBands`) `editable` instead of detecting listeners that change dynamically.
 
 | Prop                                      | Type                                                   | Default             | Description                                         |
 | ----------------------------------------- | ------------------------------------------------------ | ------------------- | --------------------------------------------------- |
@@ -175,12 +183,12 @@ Measured by `npm run size` against the packed tarball (gzip, minified, a tiny Vu
 | Scenario                               | Total incl. Vue | Over Vue  |
 | -------------------------------------- | --------------- | --------- |
 | Vue only (baseline)                    | 24.4 kB         | -         |
-| `ScoreBands` only (bare root import)   | 26.5 kB         | 2.1 kB    |
-| Lean map (provinces + capitals)        | 432.0 kB        | 407.6 kB  |
-| `/lite` map (every layer, lite level)  | 227.8 kB        | 203.4 kB  |
-| `/full` map (every layer, full detail) | 1925.0 kB       | 1900.6 kB |
+| `ScoreBands` only (bare root import)   | 26.7 kB         | 2.3 kB    |
+| Lean map (provinces + capitals)        | 432.4 kB        | 408.0 kB  |
+| `/lite` map (every layer, lite level)  | 228.2 kB        | 203.8 kB  |
+| `/full` map (every layer, full detail) | 1925.5 kB       | 1901.1 kB |
 
-The stylesheet is 1.5 kB gzipped. The wrapper and its logic are about 7 kB; the map data dominates, which is why the root entry is lean and lighter levels exist.
+The stylesheet is about 1.6 kB gzipped. The wrapper and its logic are about 7 kB; the map data dominates, which is why the root entry is lean and lighter levels exist.
 
 ## Development
 
