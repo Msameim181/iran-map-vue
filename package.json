@@ -1,6 +1,6 @@
 {
   "name": "@msameim181/iran-map-vue",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lightweight interactive SVG map of Iran for Vue 3",
   "type": "module",
   "main": "./dist/cjs/index.cjs",

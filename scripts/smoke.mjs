@@ -1,10 +1,9 @@
 // Loads the packed package the way real consumers do and fails on any error:
 // Node CJS require, Node ESM import, Vite SSR (ssrLoadModule), and renderToString of the real build.
-// Usage: npm run build && npm run smoke
+// Usage: npm run build && npm run smoke [-- --no-vite]   (--no-vite: Node versions Vite does not support)
 import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createServer } from 'vite'
 import { PACKAGE, createConsumer } from './lib/pack.mjs'
 
 const ENTRIES = ['', '/full', '/lite', '/score-bands', '/create']
@@ -41,19 +40,22 @@ for (const entry of ENTRIES) {
   )
 }
 
-await check('vite ssrLoadModule', async () => {
-  const server = await createServer({
-    root: dir,
-    appType: 'custom',
-    logLevel: 'silent',
-    server: { middlewareMode: true },
+if (!process.argv.includes('--no-vite')) {
+  await check('vite ssrLoadModule', async () => {
+    const { createServer } = await import('vite')
+    const server = await createServer({
+      root: dir,
+      appType: 'custom',
+      logLevel: 'silent',
+      server: { middlewareMode: true },
+    })
+    try {
+      for (const entry of ENTRIES) await server.ssrLoadModule(`${PACKAGE}${entry}`)
+    } finally {
+      await server.close()
+    }
   })
-  try {
-    for (const entry of ENTRIES) await server.ssrLoadModule(`${PACKAGE}${entry}`)
-  } finally {
-    await server.close()
-  }
-})
+}
 
 await check('renderToString of the real package', () => {
   writeFileSync(
