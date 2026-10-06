@@ -92,6 +92,6 @@
     "vue-tsc": "^3.0.0"
   },
   "dependencies": {
-    "@msameim181/iran-map-core": "file:../iran-map-core"
+    "@msameim181/iran-map-core": "^0.1.0"
   }
 }

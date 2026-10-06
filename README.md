@@ -171,7 +171,7 @@ npm run size        # gzip report
 npm run demo        # Vue demo with every layer
 ```
 
-Node.js 22 or newer. Until core is published, the repository expects it checked out next to this one (`../iran-map-core`, built); CI does that automatically. The [Pages workflow](.github/workflows/pages.yml) builds the demo with `--base /iran-map-vue/`.
+Node.js 22 or newer. Installing needs a GitHub token with `read:packages` (see Installation), because `@msameim181/iran-map-core` also comes from GitHub Packages; CI uses `GITHUB_TOKEN`. The [Pages workflow](.github/workflows/pages.yml) builds the demo with `--base /iran-map-vue/`.
 
 ## Data attribution
 
