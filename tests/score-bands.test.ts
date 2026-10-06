@@ -208,4 +208,18 @@ describe('Standalone ScoreBands', () => {
     await wrapper.setProps({ editable: false })
     expect(wrapper.find('.iran-score-bands-editor').exists()).toBe(false)
   })
+
+  it('ignores partial entries (badInput) instead of recording them as a blank draft', async () => {
+    const onChange = vi.fn()
+    const wrapper = mountAttached(ScoreBands, {
+      props: { bands: [{ min: 10, max: 50, color: '#123456' }], scale: 'numeric', min: -100, max: 100, onChange },
+    })
+    const minimum = field(wrapper.element, 'Minimum (inclusive)')
+    const maximum = field(wrapper.element, 'Maximum (exclusive)')
+    // jsdom has no layout/validity for number inputs; emulate the browser's partial entry "-".
+    Object.defineProperty(minimum, 'validity', { value: { badInput: true }, configurable: true })
+    await type(minimum, '')
+    await commit(maximum, '60') // commits band 1 with both drafts: the partial entry must not appear as blank
+    expect(onChange).toHaveBeenLastCalledWith([{ min: 10, max: 60, color: '#123456' }])
+  })
 })

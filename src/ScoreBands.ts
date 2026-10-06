@@ -77,7 +77,11 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
     // Typing only records text; the band changes on blur/Enter (the native `change` event), when a
     // blank bound becomes "unbounded". A partial entry such as "-" (badInput) never commits.
     const onBoundInput = (index: number, field: ScoreBandField, event: Event) => {
-      drafts.value = setDraft(drafts.value, index, field, (event.target as HTMLInputElement).value)
+      const input = event.target as HTMLInputElement
+      // A number input reports '' for a partial entry ("-", "3-0"); recording that would later
+      // commit as "unbounded". Only a field the person really cleared counts as blank.
+      if (input.validity?.badInput) return
+      drafts.value = setDraft(drafts.value, index, field, input.value)
     }
     const onBoundChange = (index: number, field: ScoreBandField, event: Event) => {
       const input = event.target as HTMLInputElement
