@@ -92,7 +92,8 @@ jobs:
           path: ${{ runner.temp }}/tarball
       - name: Smoke test
         run: |
-          export IRAN_MAP_VUE_TARBALL="$(ls "$RUNNER_TEMP"/tarball/*.tgz)"
+          tarball="$(ls "$RUNNER_TEMP"/tarball/*.tgz)"
+          export IRAN_MAP_VUE_TARBALL="$tarball"
           node scripts/smoke.mjs --no-vite
 
   publish-github:

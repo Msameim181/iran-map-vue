@@ -12,14 +12,19 @@ export const createConsumer = () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'iran-map-vue-consumer-')))
   const packDir = join(dir, 'pack')
   mkdirSync(packDir)
-  execFileSync('npm', ['pack', '--silent', '--pack-destination', packDir], {
-    cwd: root,
-    stdio: ['ignore', 'pipe', 'inherit'],
-  })
-  const tarball = join(
-    packDir,
-    readdirSync(packDir).find((name) => name.endsWith('.tgz')),
-  )
+  // CI packs once and hands the same tarball to every job (set IRAN_MAP_VUE_TARBALL); otherwise
+  // pack the freshly built working tree.
+  let tarball = process.env.IRAN_MAP_VUE_TARBALL ? resolve(process.env.IRAN_MAP_VUE_TARBALL) : undefined
+  if (!tarball) {
+    execFileSync('npm', ['pack', '--silent', '--pack-destination', packDir], {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+    tarball = join(
+      packDir,
+      readdirSync(packDir).find((name) => name.endsWith('.tgz')),
+    )
+  }
   const modules = join(dir, 'node_modules')
   const target = join(modules, ...PACKAGE.split('/'))
   mkdirSync(target, { recursive: true })

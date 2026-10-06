@@ -85,7 +85,8 @@ jobs:
         env:
           NODE_MATRIX: ${{ matrix.node }}
         run: |
-          export IRAN_MAP_VUE_TARBALL="$(ls "$RUNNER_TEMP"/tarball/*.tgz)"
+          tarball="$(ls "$RUNNER_TEMP"/tarball/*.tgz)"
+          export IRAN_MAP_VUE_TARBALL="$tarball"
           if [ "$NODE_MATRIX" = "22" ]; then node scripts/smoke.mjs; else node scripts/smoke.mjs --no-vite; fi
 
   workflows:
