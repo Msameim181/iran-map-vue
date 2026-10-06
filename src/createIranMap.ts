@@ -1,4 +1,18 @@
-import { computed, defineComponent, h, markRaw, onBeforeUnmount, onMounted, ref, toRaw } from 'vue'
+import {
+  computed,
+  defineComponent,
+  getCurrentInstance,
+  h,
+  markRaw,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  ref,
+  toRaw,
+  watch,
+  withMemo,
+} from 'vue'
 import type { VNode } from 'vue'
 import {
   SELECTABLE_ELEMENT_SELECTOR,
@@ -16,7 +30,6 @@ import {
   getLabelMetrics,
   getLabeledWaterBodies,
   getProvinceLabelAreas,
-  isActivationKey,
   iranMapDefaults,
   resolveAreaSelection,
   resolveDefaultSelectedArea,
@@ -25,9 +38,11 @@ import {
   toPublicIsland,
 } from '@msameim181/iran-map-core'
 import type { IranMapCatalogs, RenderableMapArea } from '@msameim181/iran-map-core'
-import { iranMapEmits, iranMapProps } from './props'
-import { createTooltip } from './tooltip'
-import type { Tooltip } from './tooltip'
+import { warnOnce } from './devWarn.js'
+import { hasListener } from './listeners.js'
+import { iranMapEmits, iranMapProps } from './props.js'
+import { createTooltip } from './tooltip.js'
+import type { Tooltip } from './tooltip.js'
 
 const interactiveOf = (target: EventTarget | null): Element | null => {
   const node = target as Node | null
@@ -36,7 +51,14 @@ const interactiveOf = (target: EventTarget | null): Element | null => {
 }
 
 const stroke = { 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-miterlimit': 1 }
-const warned = new Set<string>()
+const CATALOG_KEYS = [
+  'provinces',
+  'counties',
+  'islands',
+  'waterBodies',
+  'provinceCapitals',
+  'countyCapitals',
+] as const satisfies ReadonlyArray<keyof IranMapCatalogs>
 
 /**
  * Builds an IranMap component bound to default catalogs. The root entry binds the lean
@@ -50,10 +72,25 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
     props: iranMapProps,
     emits: iranMapEmits,
     setup(props, { emit }) {
-      // Catalogs are multi-MB: never let Vue proxy them (toRaw undoes a parent's deep ref()).
-      const catalogs = computed<IranMapCatalogs>(() =>
-        props.catalogs ? markRaw({ ...lean, ...toRaw(props.catalogs) }) : lean,
-      )
+      const instance = getCurrentInstance()!
+
+      // Catalogs are multi-MB: never let Vue proxy them. Fields are read through the (possibly
+      // reactive) container so replacing one is tracked, each array is un-proxied, an explicit
+      // `undefined` keeps the default, and an unchanged field set returns the previous object so
+      // an inline `:catalogs="{ counties }"` does not rebuild the model.
+      let previous: IranMapCatalogs | undefined
+      const catalogs = computed<IranMapCatalogs>(() => {
+        const overrides = props.catalogs
+        if (!overrides) return lean
+        const merged = { ...lean } as Record<string, unknown>
+        for (const key of CATALOG_KEYS) {
+          const value = overrides[key]
+          if (value !== undefined) merged[key] = toRaw(value)
+        }
+        const next = merged as unknown as IranMapCatalogs
+        if (previous && CATALOG_KEYS.every((key) => previous![key] === next[key])) return previous
+        return (previous = markRaw(next))
+      })
 
       const model = computed(() => {
         const result = buildMapModel(
@@ -75,15 +112,13 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
           },
           catalogs.value,
         )
-        // Literal `process.env.NODE_ENV` check so consumer bundlers strip this in production.
-        if (process.env.NODE_ENV !== 'production') {
-          for (const warning of result.warnings) {
-            if (warned.has(warning)) continue
-            warned.add(warning)
-            console.warn(
-              `[iran-map-vue] ${warning}. Import IranMap from '@msameim181/iran-map-vue/full' or pass the catalog via the \`catalogs\` prop.`,
-            )
-          }
+        for (const warning of result.warnings) {
+          // Core also reports configuration mistakes (unknown focusProvince, duplicate region ids...).
+          warnOnce(
+            /catalog/i.test(warning)
+              ? `${warning}. Import IranMap from '@msameim181/iran-map-vue/full' (or /lite) or pass the catalog via the \`catalogs\` prop.`
+              : warning,
+          )
         }
         return result
       })
@@ -96,8 +131,21 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
       const selectedId = computed(() =>
         props.selectedArea !== undefined ? (props.selectedArea ?? undefined) : inner.value,
       )
+      watch(
+        () => props.selectedArea,
+        (next, before) => {
+          if (before !== undefined && next === undefined) {
+            warnOnce(
+              'selectedArea switched from controlled to uncontrolled (it became undefined); use null for "nothing selected". The map falls back to its internal selection.',
+            )
+          }
+        },
+      )
+      // Whether the selected area has been part of the current model; see the watch below.
+      let selectionWasPresent = false
       const setSelected = (id: string | undefined) => {
         inner.value = id
+        selectionWasPresent = id !== undefined
         emit('update:selectedArea', id ?? null)
       }
       const clearSelection = () => {
@@ -117,15 +165,38 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         if (result.province) emit('select-province', result.province)
       }
 
+      // A selected area that leaves the model (mode switch, focus change, data swap) is deselected
+      // once, with the usual events, so a stale id never lingers in v-model or reappears when the
+      // area comes back. An initial/default selection that was never in the model is dropped
+      // silently (only when uncontrolled; a controlled value belongs to the parent).
+      watch(
+        [model, selectedId],
+        ([m, id]) => {
+          if (id === undefined) {
+            selectionWasPresent = false
+            return
+          }
+          if (m.areas.some((area) => area.id === id)) {
+            selectionWasPresent = true
+          } else if (selectionWasPresent) {
+            selectionWasPresent = false
+            clearSelection()
+          } else if (props.selectedArea === undefined) {
+            inner.value = undefined
+          }
+        },
+        { immediate: true },
+      )
+
       // --- native tooltip + delegated events ---
       const wrapperRef = ref<HTMLElement>()
-      const tooltipRef = ref<HTMLElement>()
       let tooltip: Tooltip | undefined
       let activeEl: Element | null = null
-      const tip = () => (tooltip ??= createTooltip(tooltipRef.value!))
+      let hoverEmitted = false
+      let spaceTarget: Element | null = null
+      const tip = () => (tooltip ??= createTooltip(wrapperRef.value!.ownerDocument))
       const hideTip = () => {
-        if (!tooltip?.visible) return
-        tooltip.hide()
+        tooltip?.hide()
         activeEl = null
       }
 
@@ -148,8 +219,33 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
       }
       const emitHover = (el: Element, hovering: boolean) => {
         const area = areaFor(el)
-        if (area) emit('hover', hovering ? toPublicArea(area) : null)
+        if (!area) return
+        hoverEmitted = hovering
+        emit('hover', hovering ? toPublicArea(area) : null)
       }
+      const leave = (el: Element) => {
+        hideTip()
+        emitHover(el, false)
+      }
+
+      // Keep the tooltip honest when the model changes under it: refresh its text, and when the
+      // hovered element is gone (mode switch, data change) hide it and clear the hover.
+      watch(
+        [model, () => props.tooltipTitle],
+        () => {
+          if (!activeEl) return
+          if (!activeEl.isConnected) {
+            hideTip()
+            if (hoverEmitted) {
+              hoverEmitted = false
+              emit('hover', null)
+            }
+            return
+          }
+          tooltip?.setText(activeEl.getAttribute('data-tooltip-content') || '')
+        },
+        { flush: 'post' },
+      )
 
       const onMouseover = (event: MouseEvent) => {
         const el = interactiveOf(event.target)
@@ -162,11 +258,10 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
       const onMouseout = (event: MouseEvent) => {
         const el = interactiveOf(event.target)
         if (!el || interactiveOf(event.relatedTarget) === el) return
-        hideTip()
-        emitHover(el, false)
+        leave(el)
       }
       const onMousemove = (event: MouseEvent) => {
-        if (activeEl && tooltip?.visible) tooltip.move(event.clientX, event.clientY)
+        if (activeEl) tooltip?.move(event.clientX, event.clientY)
       }
       const onFocusin = (event: FocusEvent) => {
         const el = interactiveOf(event.target)
@@ -177,25 +272,43 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         emitHover(el, true)
       }
       const onFocusout = (event: FocusEvent) => {
+        spaceTarget = null // a Space press that started here must not activate after focus left
         const el = interactiveOf(event.target)
-        if (!el) return
-        hideTip()
-        emitHover(el, false)
+        if (el) leave(el)
       }
       const onClick = (event: MouseEvent) => {
         const el = interactiveOf(event.target)
         if (el) activate(el)
       }
+      // Enter activates on keydown (ignoring auto-repeat); Space on keyup, like a native button.
       const onKeydown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') return hideTip()
-        if (!isActivationKey(event.key)) return
+        if (event.key === 'Escape') {
+          hideTip()
+          return clearSelection()
+        }
         const el = interactiveOf(event.target)
         if (!el) return
-        event.preventDefault()
-        activate(el)
+        if (event.key === ' ') {
+          event.preventDefault()
+          if (!event.repeat) spaceTarget = el
+        } else if (event.key === 'Enter') {
+          event.preventDefault()
+          if (!event.repeat) activate(el)
+        }
+      }
+      const onKeyup = (event: KeyboardEvent) => {
+        if (event.key !== ' ') return
+        const el = interactiveOf(event.target)
+        const pressed = spaceTarget
+        spaceTarget = null
+        if (el && el === pressed) {
+          event.preventDefault()
+          activate(el)
+        }
       }
 
-      // Outside-click dismissal. Registered once after mount (SSR-safe) and removed on unmount.
+      // Outside-click dismissal. Registered after mount (SSR-safe), paused while the map sits in
+      // a deactivated <KeepAlive> subtree, and removed on unmount.
       const onDocumentClick = (event: MouseEvent) => {
         const wrapper = wrapperRef.value
         if (!wrapper) return
@@ -205,246 +318,338 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
         clearSelection()
       }
       let ownerDocument: Document | undefined
-      onMounted(() => {
-        ownerDocument = wrapperRef.value?.ownerDocument
+      const attach = () => {
+        ownerDocument ??= wrapperRef.value?.ownerDocument
         ownerDocument?.addEventListener('click', onDocumentClick, true)
+      }
+      const detach = () => ownerDocument?.removeEventListener('click', onDocumentClick, true)
+      onMounted(attach)
+      onActivated(() => {
+        detach() // addEventListener is idempotent for the same listener; this keeps it explicit
+        attach()
       })
-      onBeforeUnmount(() => ownerDocument?.removeEventListener('click', onDocumentClick, true))
+      onDeactivated(() => {
+        detach()
+        hideTip()
+      })
+      onBeforeUnmount(() => {
+        detach()
+        tooltip?.destroy()
+        tooltip = undefined
+      })
 
-      // --- render ---
+      // --- render (memoized so a selection change only patches the affected shapes) ---
+      const water: VNode[] = []
+      const land: VNode[] = []
+      const areaCache: VNode[] = []
+      const islandCache: VNode[] = []
+      const labelCache: VNode[] = []
+      const capitalCache: VNode[] = []
+
       return () => {
         const m = model.value
         const scale = m.mapScale
         const metrics = getLabelMetrics(scale)
         const selectedAreaColor = resolveSelectedAreaColor(props)
+        const selected = selectedId.value
         const showWater = props.showWater ?? iranMapDefaults.showWater
         const showIslands = props.showIslands ?? iranMapDefaults.showIslands
+        const capitalsInteractive = props.capitalsInteractive ?? hasListener(instance, 'onCapitalSelect')
+        // Drop memo entries beyond the current model, so a county->province switch does not keep
+        // hundreds of stale vnodes alive.
+        areaCache.length = Math.min(areaCache.length, m.areas.length)
+        islandCache.length = Math.min(islandCache.length, showIslands ? m.islands.length : 0)
+        capitalCache.length = Math.min(capitalCache.length, m.capitals.length)
+        labelCache.length = Math.min(labelCache.length, m.showLabels ? m.areas.length : 0)
+        if (!showWater) water.length = 0
+        if (m.landBackgrounds.length === 0) land.length = 0
         const children: VNode[] = []
 
         if (showWater) {
           children.push(
-            h('g', { class: 'iran-map-water-layer', 'aria-hidden': 'true' }, [
-              ...m.waterBodies.map((water) =>
-                h('path', {
-                  key: water.id,
-                  'data-water-id': water.id,
-                  d: water.path,
-                  fill: props.waterColor,
-                  'fill-rule': 'evenodd',
-                }),
-              ),
-              ...(props.showSeaLabels
-                ? getLabeledWaterBodies(m.waterBodies).map((water) =>
-                    h(
-                      'g',
-                      {
-                        key: `water-label:${water.id}`,
-                        class: 'iran-map-water-label',
-                        transform: `translate(${water.labelX} ${water.labelY})`,
-                        fill: props.seaLabelColor,
-                      },
-                      [
+            withMemo(
+              [m.waterBodies, props.waterColor, props.seaLabelColor, props.showSeaLabels, scale],
+              () =>
+                h('g', { class: 'iran-map-water-layer', 'aria-hidden': 'true' }, [
+                  ...m.waterBodies.map((waterBody) =>
+                    h('path', {
+                      key: waterBody.id,
+                      'data-water-id': waterBody.id,
+                      d: waterBody.path,
+                      fill: props.waterColor,
+                      'fill-rule': 'evenodd',
+                    }),
+                  ),
+                  ...(props.showSeaLabels
+                    ? getLabeledWaterBodies(m.waterBodies).map((waterBody) =>
                         h(
-                          'text',
+                          'g',
                           {
-                            class: 'iran-map-water-label-fa',
-                            'text-anchor': 'middle',
-                            lang: 'fa',
-                            'font-size': metrics.waterLabelFa.fontSize,
+                            key: `water-label:${waterBody.id}`,
+                            class: 'iran-map-water-label',
+                            transform: `translate(${waterBody.labelX} ${waterBody.labelY})`,
+                            fill: props.seaLabelColor,
                           },
-                          water.faName,
+                          [
+                            h(
+                              'text',
+                              {
+                                class: 'iran-map-water-label-fa',
+                                'text-anchor': 'middle',
+                                lang: 'fa',
+                                'font-size': metrics.waterLabelFa.fontSize,
+                              },
+                              waterBody.faName,
+                            ),
+                            h(
+                              'text',
+                              {
+                                class: 'iran-map-water-label-en',
+                                y: metrics.waterLabelEn.y,
+                                'text-anchor': 'middle',
+                                'font-size': metrics.waterLabelEn.fontSize,
+                              },
+                              waterBody.name,
+                            ),
+                          ],
                         ),
-                        h(
-                          'text',
-                          {
-                            class: 'iran-map-water-label-en',
-                            y: metrics.waterLabelEn.y,
-                            'text-anchor': 'middle',
-                            'font-size': metrics.waterLabelEn.fontSize,
-                          },
-                          water.name,
-                        ),
-                      ],
-                    ),
-                  )
-                : []),
-            ]),
+                      )
+                    : []),
+                ]),
+              water,
+              0,
+            ),
           )
         }
 
         if (m.landBackgrounds.length > 0) {
           children.push(
-            h(
-              'g',
-              { class: 'iran-map-land-background', 'aria-hidden': 'true' },
-              m.landBackgrounds.map((boundary) =>
-                h('path', {
-                  key: boundary.id,
-                  d: boundary.path,
-                  fill: props.deactiveProvinceColor,
-                  'fill-rule': 'evenodd',
-                }),
-              ),
+            withMemo(
+              [m.landBackgrounds, props.deactiveProvinceColor],
+              () =>
+                h(
+                  'g',
+                  { class: 'iran-map-land-background', 'aria-hidden': 'true' },
+                  m.landBackgrounds.map((boundary) =>
+                    h('path', {
+                      key: boundary.id,
+                      d: boundary.path,
+                      fill: props.deactiveProvinceColor,
+                      'fill-rule': 'evenodd',
+                    }),
+                  ),
+                ),
+              land,
+              0,
             ),
           )
         }
 
         m.areas.forEach((area, index) => {
-          const tooltipText = getAreaTooltip(area, props.tooltipTitle)
+          const isSelected = area.id === selected
           children.push(
-            h('path', {
-              key: `${area.type}:${area.id}:${index}`,
-              class: 'iran-map-area',
-              d: area.path,
-              fill: getAreaFill(area, selectedId.value, selectedAreaColor),
-              'fill-rule': 'evenodd',
-              stroke: props.strokeColor,
-              'stroke-width': props.strokeWidth,
-              ...stroke,
-              'vector-effect': 'non-scaling-stroke',
-              tabindex: 0,
-              role: 'button',
-              'aria-pressed': area.id === selectedId.value,
-              'aria-label': tooltipText,
-              'data-testid': getAreaTestId(area),
-              'data-area-id': area.id,
-              'data-area-type': area.type,
-              'data-index': index,
-              'data-tooltip-content': tooltipText,
-            }),
+            withMemo(
+              [area, isSelected, selectedAreaColor, props.strokeColor, props.strokeWidth, props.tooltipTitle],
+              () => {
+                const tooltipText = getAreaTooltip(area, props.tooltipTitle)
+                return h('path', {
+                  key: `${area.type}:${area.id}:${index}`,
+                  class: 'iran-map-area',
+                  d: area.path,
+                  fill: getAreaFill(area, selected, selectedAreaColor),
+                  'fill-rule': 'evenodd',
+                  stroke: props.strokeColor,
+                  'stroke-width': props.strokeWidth,
+                  ...stroke,
+                  'vector-effect': 'non-scaling-stroke',
+                  tabindex: 0,
+                  role: 'button',
+                  'aria-pressed': isSelected,
+                  'aria-label': tooltipText,
+                  'data-testid': getAreaTestId(area),
+                  'data-area-id': area.id,
+                  'data-area-type': area.type,
+                  'data-index': index,
+                  'data-tooltip-content': tooltipText,
+                })
+              },
+              areaCache,
+              index,
+            ),
           )
         })
 
         if (showIslands) {
-          for (const island of m.islands) {
-            const tooltipText = getIslandTooltip(island)
+          m.islands.forEach((island, index) => {
             children.push(
-              h(
-                'g',
-                {
-                  key: island.id,
-                  class: 'iran-map-island',
-                  tabindex: 0,
-                  role: 'button',
-                  'aria-label': tooltipText,
-                  'data-testid': getIslandTestId(island),
-                  'data-island-id': island.id,
-                  'data-province-id': island.provinceId,
-                  'data-county-id': island.countyId,
-                  'data-latitude': island.latitude,
-                  'data-longitude': island.longitude,
-                  'data-tooltip-content': tooltipText,
-                },
+              withMemo(
                 [
-                  h('circle', {
-                    class: 'iran-map-island-hit',
-                    cx: island.labelX,
-                    cy: island.labelY,
-                    r: metrics.islandHitRadius,
-                  }),
-                  h('path', {
-                    class: 'iran-map-island-shape',
-                    d: island.path,
-                    fill: getIslandFill(island, selectedId.value, selectedAreaColor),
-                    'fill-rule': 'evenodd',
-                    stroke: props.strokeColor,
-                    'stroke-width': props.strokeWidth,
-                    ...stroke,
-                    'vector-effect': 'non-scaling-stroke',
-                  }),
-                  props.showIslandLabels && island.featured
-                    ? h(
-                        'text',
-                        {
-                          class: 'iran-map-island-label',
-                          x: island.labelX,
-                          y: island.labelY + metrics.islandLabel.offsetY,
-                          fill: props.textColor,
-                          'text-anchor': 'middle',
-                          'font-size': metrics.islandLabel.fontSize,
-                          'stroke-width': metrics.islandLabel.strokeWidth,
-                        },
-                        island.faName,
-                      )
-                    : null,
+                  island,
+                  island.area.id === selected,
+                  selectedAreaColor,
+                  props.strokeColor,
+                  props.strokeWidth,
+                  props.textColor,
+                  props.showIslandLabels,
+                  scale,
                 ],
+                () => {
+                  const tooltipText = getIslandTooltip(island)
+                  return h(
+                    'g',
+                    {
+                      key: island.id,
+                      class: 'iran-map-island',
+                      tabindex: 0,
+                      role: 'button',
+                      'aria-label': tooltipText,
+                      'data-testid': getIslandTestId(island),
+                      'data-island-id': island.id,
+                      'data-province-id': island.provinceId,
+                      'data-county-id': island.countyId,
+                      'data-latitude': island.latitude,
+                      'data-longitude': island.longitude,
+                      'data-tooltip-content': tooltipText,
+                    },
+                    [
+                      h('circle', {
+                        class: 'iran-map-island-hit',
+                        cx: island.labelX,
+                        cy: island.labelY,
+                        r: metrics.islandHitRadius,
+                      }),
+                      h('path', {
+                        class: 'iran-map-island-shape',
+                        d: island.path,
+                        fill: getIslandFill(island, selected, selectedAreaColor),
+                        'fill-rule': 'evenodd',
+                        stroke: props.strokeColor,
+                        'stroke-width': props.strokeWidth,
+                        ...stroke,
+                        'vector-effect': 'non-scaling-stroke',
+                      }),
+                      props.showIslandLabels && island.featured
+                        ? h(
+                            'text',
+                            {
+                              class: 'iran-map-island-label',
+                              x: island.labelX,
+                              y: island.labelY + metrics.islandLabel.offsetY,
+                              fill: props.textColor,
+                              'text-anchor': 'middle',
+                              'font-size': metrics.islandLabel.fontSize,
+                              'stroke-width': metrics.islandLabel.strokeWidth,
+                            },
+                            island.faName,
+                          )
+                        : null,
+                    ],
+                  )
+                },
+                islandCache,
+                index,
               ),
             )
-          }
+          })
         }
 
         if (m.showLabels) {
-          for (const area of getProvinceLabelAreas(m.areas)) {
+          getProvinceLabelAreas(m.areas).forEach((area, index) => {
             children.push(
-              h(
-                'text',
-                {
-                  key: `label:${area.id}`,
-                  class: 'iran-map-label',
-                  x: area.labelX,
-                  y: area.labelY,
-                  fill: props.textColor,
-                  'text-anchor': 'middle',
-                  'dominant-baseline': 'middle',
-                  'font-size': metrics.provinceLabel.fontSize,
-                  'stroke-width': metrics.provinceLabel.strokeWidth,
-                },
-                area.faName,
+              withMemo(
+                [area, props.textColor, scale],
+                () =>
+                  h(
+                    'text',
+                    {
+                      key: `label:${area.id}`,
+                      class: 'iran-map-label',
+                      x: area.labelX,
+                      y: area.labelY,
+                      fill: props.textColor,
+                      'text-anchor': 'middle',
+                      'dominant-baseline': 'middle',
+                      'font-size': metrics.provinceLabel.fontSize,
+                      'stroke-width': metrics.provinceLabel.strokeWidth,
+                    },
+                    area.faName,
+                  ),
+                labelCache,
+                index,
               ),
             )
-          }
+          })
         }
 
-        for (const capital of m.capitals) {
-          const marker = getCapitalMarkerGeometry(capital, props.capitalMarkerSize, scale)
-          const tooltipText = getCapitalTooltip(capital)
+        m.capitals.forEach((capital, index) => {
           children.push(
-            h(
-              'g',
-              {
-                key: capital.id,
-                class: `iran-map-capital iran-map-capital--${capital.areaType}`,
-                transform: `translate(${capital.x} ${capital.y})`,
-                tabindex: 0,
-                role: 'button',
-                'aria-label': tooltipText,
-                'data-testid': getCapitalTestId(capital),
-                'data-capital-id': capital.id,
-                'data-area-id': capital.areaId,
-                'data-capital-type': capital.areaType,
-                'data-latitude': capital.latitude,
-                'data-longitude': capital.longitude,
-                'data-tooltip-content': tooltipText,
-              },
+            withMemo(
               [
-                h('circle', { class: 'iran-map-capital-hit', r: marker.hitRadius }),
-                h('circle', { class: 'iran-map-capital-halo', r: marker.haloRadius }),
-                marker.shape === 'diamond'
-                  ? h('path', { class: 'iran-map-capital-core', d: marker.diamondPath, fill: props.capitalMarkerColor })
-                  : h('circle', {
-                      class: 'iran-map-capital-core',
-                      r: marker.coreRadius,
-                      fill: props.capitalMarkerColor,
-                    }),
-                h('circle', { class: 'iran-map-capital-center', r: marker.centerRadius }),
-                props.showCapitalLabels
-                  ? h(
-                      'text',
-                      {
-                        class: 'iran-map-capital-label',
-                        x: marker.label.x,
-                        y: marker.label.y,
-                        fill: props.textColor,
-                        'font-size': metrics.capitalLabel.fontSize,
-                        'stroke-width': metrics.capitalLabel.strokeWidth,
-                      },
-                      capital.faName,
-                    )
-                  : null,
+                capital,
+                props.capitalMarkerSize,
+                props.capitalMarkerColor,
+                props.showCapitalLabels,
+                props.textColor,
+                scale,
+                capitalsInteractive,
               ],
+              () => {
+                const marker = getCapitalMarkerGeometry(capital, props.capitalMarkerSize, scale)
+                const tooltipText = getCapitalTooltip(capital)
+                return h(
+                  'g',
+                  {
+                    key: capital.id,
+                    class: `iran-map-capital iran-map-capital--${capital.areaType}`,
+                    transform: `translate(${capital.x} ${capital.y})`,
+                    // Without a handler a capital only shows its tooltip: not a focusable button.
+                    ...(capitalsInteractive ? { tabindex: 0, role: 'button' } : { role: 'img' }),
+                    'aria-label': tooltipText,
+                    'data-testid': getCapitalTestId(capital),
+                    'data-capital-id': capital.id,
+                    'data-area-id': capital.areaId,
+                    'data-capital-type': capital.areaType,
+                    'data-latitude': capital.latitude,
+                    'data-longitude': capital.longitude,
+                    'data-tooltip-content': tooltipText,
+                  },
+                  [
+                    h('circle', { class: 'iran-map-capital-hit', r: marker.hitRadius }),
+                    h('circle', { class: 'iran-map-capital-halo', r: marker.haloRadius }),
+                    marker.shape === 'diamond'
+                      ? h('path', {
+                          class: 'iran-map-capital-core',
+                          d: marker.diamondPath,
+                          fill: props.capitalMarkerColor,
+                        })
+                      : h('circle', {
+                          class: 'iran-map-capital-core',
+                          r: marker.coreRadius,
+                          fill: props.capitalMarkerColor,
+                        }),
+                    h('circle', { class: 'iran-map-capital-center', r: marker.centerRadius }),
+                    props.showCapitalLabels
+                      ? h(
+                          'text',
+                          {
+                            class: 'iran-map-capital-label',
+                            x: marker.label.x,
+                            y: marker.label.y,
+                            fill: props.textColor,
+                            'font-size': metrics.capitalLabel.fontSize,
+                            'stroke-width': metrics.capitalLabel.strokeWidth,
+                          },
+                          capital.faName,
+                        )
+                      : null,
+                  ],
+                )
+              },
+              capitalCache,
+              index,
             ),
           )
-        }
+        })
 
         const width = props.width || iranMapDefaults.width
         return h(
@@ -462,11 +667,12 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
                 xmlns: 'http://www.w3.org/2000/svg',
                 viewBox: m.viewBox,
                 'shape-rendering': 'geometricPrecision',
-                role: 'img',
+                role: 'group',
                 'aria-label': props.ariaLabel,
                 style: { width: '100%', height: 'auto', color: props.textColor },
                 onClick,
                 onKeydown,
+                onKeyup,
                 onMouseover,
                 onMouseout,
                 onMousemove,
@@ -475,8 +681,6 @@ export const createIranMap = (defaults: IranMapCatalogs) => {
               },
               children,
             ),
-            // Driven imperatively (see tooltip.ts); no reactive props so Vue never patches it.
-            h('div', { ref: tooltipRef, class: 'iran-map-tooltip', role: 'tooltip', hidden: true }),
           ],
         )
       }

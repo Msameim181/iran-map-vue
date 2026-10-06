@@ -6,49 +6,186 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  # Read-only: builds, tests and packs exactly what the publish jobs will upload.
+  verify:
     runs-on: ubuntu-latest
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
-      - name: Refuse to release with a dev-linked core
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tag must be on main and match package.json
+        id: meta
         run: |
-          if grep -q '"file:' package.json; then
-            echo "package.json still has a file: dependency. Switch @msameim181/iran-map-core to its published version first." >&2
-            exit 1
-          fi
-      - name: Check tag matches package version
-        run: |
-          [ "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}" ] || {
-            echo "Tag ${GITHUB_REF_NAME} does not match package.json version." >&2
-            exit 1
-          }
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::Tag ${GITHUB_REF_NAME} is not on main."; exit 1; }
+          version="$(node -p "require('./package.json').version")"
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version $version."; exit 1; }
+          if grep -q '"file:' package.json; then echo "::error::package.json has a file: dependency."; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '22'
           cache: npm
-          registry-url: https://npm.pkg.github.com
-          scope: '@msameim181'
-      - name: Install dependencies
-        run: npm ci
-      - name: Test
-        run: npm test
+      - name: Install
+        run: npm ci --ignore-scripts
       - name: Lint
         run: npm run lint
+      - name: Type-check
+        run: npm run typecheck
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
-      - name: Publish to GitHub Packages
-        run: npm publish
+      - name: Package checks (publint, are-the-types-wrong)
+        run: npm run check:package
+      - name: Smoke test the packed package
+        run: npm run smoke
+      - name: Bundle size budgets
+        run: npm run size -- --check
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          npm pack --silent --pack-destination "$RUNNER_TEMP/pack"
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
 
-      # npmjs.org (optional, disabled). To enable: add an NPM_TOKEN repository secret,
-      # remove publishConfig.registry from package.json (or pass --registry), and uncomment.
-      # - name: Publish to npmjs.org
-      #   run: npm publish --access public --registry https://registry.npmjs.org
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  smoke-node:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        node: ['18', '20']
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install
+        run: npm ci --ignore-scripts
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Smoke test
+        run: |
+          tarball="$(ls "$RUNNER_TEMP"/tarball/*.tgz)"
+          export IRAN_MAP_VUE_TARBALL="$tarball"
+          node scripts/smoke.mjs --no-vite
+
+  publish-github:
+    needs: [verify, smoke-node]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          registry-url: https://npm.pkg.github.com
+          scope: '@msameim181'
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Publish to GitHub Packages (skipped when this version already exists)
+        run: |
+          set -euo pipefail
+          if npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "Version $VERSION is already on GitHub Packages; nothing to do."
+            exit 0
+          fi
+          tag=latest; [ "$PRERELEASE" = "true" ] && tag=next
+          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --registry https://npm.pkg.github.com --tag "$tag"
+
+  # npmjs.org via trusted publishing (OIDC): no token. Skipped until the repository variable
+  # NPM_PUBLISH is 'true' (set after configuring the trusted publisher for this package on npmjs).
+  publish-npm:
+    needs: [verify, smoke-node]
+    if: ${{ vars.NPM_PUBLISH == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      # Exact version: this job holds id-token: write. Trusted publishing needs npm >= 11.5.1.
+      - name: Use a pinned npm with trusted publishing support
+        run: npm install -g npm@11.21.0
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Publish to npmjs.org (skipped when this version already exists)
+        run: |
+          set -euo pipefail
+          if npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "Version $VERSION is already on npmjs.org; nothing to do."
+            exit 0
+          fi
+          tag=latest; [ "$PRERELEASE" = "true" ] && tag=next
+          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --registry https://registry.npmjs.org --access public --provenance --tag "$tag"
+
+  github-release:
+    needs: [verify, publish-github]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Create the GitHub Release from the changelog (skipped when it exists)
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists."
+            exit 0
+          fi
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {p=1; next} /^## \[/ {p=0} p' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || echo "See CHANGELOG.md." > "$RUNNER_TEMP/notes.md"
+          flags=(); [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"

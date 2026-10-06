@@ -1,68 +1,127 @@
-import { computed, defineComponent, getCurrentInstance, h, ref, watch } from 'vue'
-import type { PropType, VNode } from 'vue'
+import { computed, defineComponent, getCurrentInstance, h, ref, toRaw, watch } from 'vue'
+import type { ExtractPublicPropTypes, PropType, VNode } from 'vue'
 import {
   addBand,
   applyDrafts,
-  editBound,
+  commitDraft,
   getBoundInputLimits,
   getColorInputValue,
   getDomainLabel,
   getDraftKey,
+  setDraft,
   getLegendItems,
   getScoreBandsHeading,
   getScoreBandsLabel,
   hasInvalidBands,
   isValidBand,
   isValidDomain,
-  removeBand,
+  removeBandWithDrafts,
   scoreBandsDefaults as d,
   scoreBandsText as text,
   updateBand,
 } from '@msameim181/iran-map-core'
 import type { IranMapColorBand, ScoreBandDrafts, ScoreBandField, ScoreBandScale } from '@msameim181/iran-map-core'
+import { hasListener } from './listeners.js'
 
 const FIELDS: ScoreBandField[] = ['min', 'max']
 
-export const ScoreBands = defineComponent({
+const scoreBandsProps = {
+  bands: { type: Array as PropType<IranMapColorBand[]>, required: true as const },
+  scale: { type: String as PropType<ScoreBandScale>, default: d.scale },
+  /** Display domain. Defaults to 0–100; numeric scales may use any finite x–y domain. */
+  min: { type: Number, default: d.min },
+  max: { type: Number, default: d.max },
+  metricLabel: { type: String, default: d.metricLabel },
+  orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: d.orientation },
+  formatValue: { type: Function as PropType<(value: number) => string>, default: String },
+  showNoData: { type: Boolean, default: d.showNoData },
+  noDataColor: { type: String, default: d.noDataColor },
+  noDataLabel: { type: String, default: d.noDataLabel },
+  className: { type: String, default: '' },
+  /**
+   * Show the editor. Defaults to "a `change` or `update:bands` listener is attached" (checked on
+   * every render); set it explicitly when listeners are added or removed dynamically.
+   */
+  editable: { type: Boolean, default: undefined },
+}
+
+export const ScoreBands = /* @__PURE__ */ defineComponent({
   name: 'ScoreBands',
-  props: {
-    bands: { type: Array as PropType<IranMapColorBand[]>, required: true },
-    scale: { type: String as PropType<ScoreBandScale>, default: d.scale },
-    /** Display domain. Defaults to 0–100; numeric scales may use any finite x–y domain. */
-    min: { type: Number, default: d.min },
-    max: { type: Number, default: d.max },
-    metricLabel: { type: String, default: d.metricLabel },
-    orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: d.orientation },
-    formatValue: { type: Function as PropType<(value: number) => string>, default: String },
-    showNoData: { type: Boolean, default: d.showNoData },
-    noDataColor: { type: String, default: d.noDataColor },
-    noDataLabel: { type: String, default: d.noDataLabel },
-    className: { type: String, default: '' },
-  },
+  props: scoreBandsProps,
   // `change` (React onChange equivalent) and `update:bands` (v-model:bands) carry the same payload.
-  emits: ['change', 'update:bands'],
+  emits: {
+    change: (_bands: IranMapColorBand[]) => true,
+    'update:bands': (_bands: IranMapColorBand[]) => true,
+  },
   setup(props, { emit }) {
     const instance = getCurrentInstance()!
     const drafts = ref<ScoreBandDrafts>({})
+    // Fields holding a partial entry ("-", "3-0"). A number input reports '' for these, so they are
+    // rendered as value '' (never the old bound): otherwise any re-render would write the committed
+    // value over the text being typed and make negative numbers untypeable.
+    const partial = ref<Record<string, true>>({})
+    // Drafts belong to the committed bands we emitted; bands replaced from outside reset them.
+    let lastEmitted: IranMapColorBand[] | undefined
     watch(
       () => props.bands,
-      () => (drafts.value = {}),
+      (bands) => {
+        // toRaw: a parent holding the bands in a ref sees (and passes back) a reactive proxy.
+        if (toRaw(bands) !== lastEmitted) {
+          drafts.value = {}
+          partial.value = {}
+        }
+      },
     )
 
     const validDomain = computed(() => isValidDomain(props.min, props.max, props.scale))
     const commit = (next: IranMapColorBand[]) => {
+      lastEmitted = toRaw(next)
       emit('change', next)
       emit('update:bands', next)
     }
-    // Editor mode is on iff the parent listens, like React's optional onChange.
-    const editable = () => {
-      const vnodeProps = instance.vnode.props || {}
-      return !!(vnodeProps.onChange || vnodeProps['onUpdate:bands'])
+    // Editor mode defaults to "the parent listens", like React's optional onChange.
+    const editable = () => props.editable ?? hasListener(instance, 'onChange', 'onUpdate:bands')
+    // Typing only records text; the band changes on blur/Enter (the native `change` event), when a
+    // blank bound becomes "unbounded". A partial entry such as "-" (badInput) never commits.
+    const setPartial = (key: string, on: boolean) => {
+      if (on === !!partial.value[key]) return
+      const next = { ...partial.value }
+      if (on) next[key] = true
+      else delete next[key]
+      partial.value = next
     }
-    const onBound = (index: number, field: ScoreBandField, value: string) => {
-      const edit = editBound(props.bands, drafts.value, index, field, value, props.scale)
+    const onBoundInput = (index: number, field: ScoreBandField, event: Event) => {
+      const input = event.target as HTMLInputElement
+      const key = getDraftKey(index, field)
+      // Record no draft for a partial entry: it would later commit as "unbounded". Only a field
+      // the person really cleared counts as blank.
+      if (input.validity?.badInput) {
+        // Drop any earlier blank draft of this field (the person cleared it, then started "-"):
+        // otherwise committing the sibling bound would commit this field as unbounded.
+        if (drafts.value[key] !== undefined) {
+          const next = { ...drafts.value }
+          delete next[key]
+          drafts.value = next
+        }
+        return setPartial(key, true)
+      }
+      setPartial(key, false)
+      drafts.value = setDraft(drafts.value, index, field, input.value)
+    }
+    const onBoundChange = (index: number, field: ScoreBandField, event: Event) => {
+      const input = event.target as HTMLInputElement
+      if (input.validity?.badInput) return
+      setPartial(getDraftKey(index, field), false)
+      const withText = setDraft(drafts.value, index, field, input.value)
+      const edit = commitDraft(props.bands, withText, index, props.scale)
       drafts.value = edit.drafts
       if (edit.bands) commit(edit.bands)
+    }
+    const removeAt = (index: number) => {
+      const result = removeBandWithDrafts(props.bands, drafts.value, index)
+      drafts.value = result.drafts
+      partial.value = {}
+      commit(result.bands)
     }
     const textInput = (handler: (value: string) => void) => (event: Event) =>
       handler((event.target as HTMLInputElement).value)
@@ -92,9 +151,14 @@ export const ScoreBands = defineComponent({
                   min: limits.min,
                   max: limits.max,
                   placeholder: 'Unbounded',
-                  value: drafts.value[getDraftKey(index, field)] ?? band[field] ?? '',
-                  'aria-invalid': !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
-                  onInput: textInput((value) => onBound(index, field, value)),
+                  value: partial.value[getDraftKey(index, field)]
+                    ? ''
+                    : (drafts.value[getDraftKey(index, field)] ?? band[field] ?? ''),
+                  'aria-invalid':
+                    !!partial.value[getDraftKey(index, field)] ||
+                    !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
+                  onInput: (event: Event) => onBoundInput(index, field, event),
+                  onChange: (event: Event) => onBoundChange(index, field, event),
                 }),
               ]),
             ),
@@ -111,7 +175,7 @@ export const ScoreBands = defineComponent({
               {
                 type: 'button',
                 'aria-label': `Remove band ${index + 1}`,
-                onClick: () => commit(removeBand(props.bands, index)),
+                onClick: () => removeAt(index),
               },
               text.removeBand,
             ),
@@ -123,7 +187,7 @@ export const ScoreBands = defineComponent({
           {
             type: 'button',
             disabled: !validDomain.value,
-            onClick: () => commit(addBand(props.bands, props.min, props.max)),
+            onClick: () => commit(addBand(props.bands, props.min)),
           },
           text.addBand,
         ),
@@ -162,3 +226,6 @@ export const ScoreBands = defineComponent({
     }
   },
 })
+
+/** Props accepted by `ScoreBands`. */
+export type ScoreBandsProps = ExtractPublicPropTypes<typeof scoreBandsProps>

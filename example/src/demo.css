@@ -851,3 +851,23 @@ h1 {
     transition-duration: 0.01ms !important;
   }
 }
+
+.data-control {
+  padding-top: 18px;
+}
+
+.data-options {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.map-loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+  margin: 0;
+  color: #527078;
+  font:
+    600 12px/1 'SFMono-Regular',
+    Consolas,
+    monospace;
+}

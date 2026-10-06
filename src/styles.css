@@ -1,22 +1,22 @@
 /* Map and score-band styles from core, bundled into this package's single style.css. */
 @import '@msameim181/iran-map-core/styles.css';
 
-/* Native tooltip. */
+/* Native tooltip, appended to <body>. Override the --iran-map-tooltip-* variables to restyle it. */
 .iran-map-tooltip {
   position: fixed;
   top: 0;
   left: 0;
   z-index: 10;
-  max-width: min(320px, calc(100vw - 12px));
-  padding: 6px 12px;
-  border-radius: 4px;
-  background: #fff;
-  color: #222;
-  font-size: 13px;
+  max-width: var(--iran-map-tooltip-max-width, min(320px, calc(100vw - 12px)));
+  padding: var(--iran-map-tooltip-padding, 6px 12px);
+  border-radius: var(--iran-map-tooltip-radius, 4px);
+  background: var(--iran-map-tooltip-bg, #fff);
+  color: var(--iran-map-tooltip-color, #222);
+  font-size: var(--iran-map-tooltip-font-size, 13px);
   line-height: 1.4;
   pointer-events: none;
   white-space: normal;
-  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.16);
+  box-shadow: var(--iran-map-tooltip-shadow, 0 4px 18px rgba(15, 23, 42, 0.16));
 }
 
 .iran-map-tooltip[hidden] {

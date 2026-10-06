@@ -13,28 +13,40 @@ It is a thin wrapper over [`@msameim181/iran-map-core`](https://github.com/Msame
 - **Choropleth colors:** configurable bands, a legacy RGB gradient, and a gray no-data state.
 - **`ScoreBands`:** standalone legend or editor for 0–100 scores and arbitrary numeric ranges.
 - **Capital markers, seas and 17 islands** as optional layers.
-- **Light by default:** the root entry bundles only the province catalog. Counties, geography and capitals are opt-in.
-- **SSR-safe:** no `window` or `document` access outside `onMounted` and event handlers.
-- **Accessible:** every area is a focusable button with `aria-pressed` and a descriptive `aria-label`; Enter and Space toggle selection.
+- **Light by default:** the root entry bundles only the province catalog. Counties, geography and capitals are opt-in, and lighter data levels (`/lite`, standard, mini) are available.
+- **Tree-shakeable:** importing `ScoreBands` alone adds about 2 kB gzipped over Vue.
+- **SSR-safe:** no `window` or `document` access outside `onMounted` and event handlers; the package loads under Node (CJS and ESM) and Vite SSR.
+- **Accessible:** every area is a focusable button with `aria-pressed` and a descriptive `aria-label`; Enter toggles selection, Space toggles on key release.
 
 ## Installation
 
-The package is published to GitHub Packages. Add the scope registry to your project's `.npmrc`:
-
-```ini
-@msameim181:registry=https://npm.pkg.github.com
-```
-
-GitHub Packages requires authentication **even for public packages**. Create a personal access token with the `read:packages` scope and add it:
-
-```ini
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
-```
-
-Then install (Vue 3.3 or newer is a peer dependency):
+Vue 3.5 or newer is a peer dependency. `@msameim181/iran-map-core` (data and logic) installs automatically.
 
 ```bash
 npm install @msameim181/iran-map-vue vue
+```
+
+The package is also published to GitHub Packages. That registry requires authentication **even for public packages**: create a personal access token with the `read:packages` scope, then add to your project's `.npmrc`:
+
+```ini
+@msameim181:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Note that mapping the whole `@msameim181` scope this way also resolves `@msameim181/iran-map-core` from GitHub Packages (it is published there too). If you only want this package from GitHub Packages and the rest from npm, install it once with an explicit registry instead: `npm install @msameim181/iran-map-vue --registry=https://npm.pkg.github.com`.
+
+Import the stylesheet once (the JavaScript never imports CSS, so it also loads under Node and SSR):
+
+```ts
+import '@msameim181/iran-map-vue/style.css'
+```
+
+It includes core's map and score-band styles and the tooltip, so this single import is all you need.
+
+With TypeScript 5.6+ and `noUncheckedSideEffectImports`, tell the compiler about the CSS import once (for example in `env.d.ts`):
+
+```ts
+declare module '@msameim181/iran-map-vue/style.css'
 ```
 
 ## Quick start
@@ -55,34 +67,44 @@ const onSelect = (area: IranMapArea) => console.log(area)
 </template>
 ```
 
-Everything (counties, seas, islands, capitals), equivalent to the legacy single package:
+## Entry points
+
+| Import                                 | What it binds                                                                 | Data (gzip, approx.) |
+| -------------------------------------- | ----------------------------------------------------------------------------- | -------------------- |
+| `@msameim181/iran-map-vue`             | Lean: province polygons and province capitals                                 | 400 kB               |
+| `@msameim181/iran-map-vue/lite`        | Every layer (counties, seas, islands, capitals) at core's "lite" detail level | 200 kB               |
+| `@msameim181/iran-map-vue/full`        | Every layer at full detail, equivalent to the legacy single package           | 1.9 MB               |
+| `@msameim181/iran-map-vue/score-bands` | `ScoreBands` only, no map data                                                | none                 |
+| `@msameim181/iran-map-vue/create`      | `createIranMap(catalogs)`: bring your own catalogs                            | none                 |
+
+All map entries also re-export `ScoreBands`, `createIranMap`, `normalizeMapValue`, the catalogs they bind (for example `provinceBoundaries`, `countyBoundaries`, `fullCatalogs`) and the types, so you do not need core as a direct dependency.
 
 ```ts
 import { IranMap } from '@msameim181/iran-map-vue/full'
 ```
 
-Or keep the lean entry and add only what you need:
+### Adding layers or choosing a detail level
+
+`catalogs` is merged over the entry's defaults. Use it to add a layer to the lean entry, or to pick core's `standard` or `mini` level. Load the data lazily and hold it in a `shallowRef` (the catalogs are multi-megabyte and must not be made deeply reactive):
 
 ```vue
 <script setup lang="ts">
+import { onMounted, shallowRef } from 'vue'
 import { IranMap } from '@msameim181/iran-map-vue'
-import { countyBoundaries } from '@msameim181/iran-map-core/counties'
+import type { IranMapCatalogs } from '@msameim181/iran-map-vue'
+
+const catalogs = shallowRef<IranMapCatalogs>()
+onMounted(async () => {
+  catalogs.value = (await import('@msameim181/iran-map-core/standard')).standardCatalogs
+})
 </script>
 
 <template>
-  <IranMap mode="county" :catalogs="{ counties: countyBoundaries }" :data="{ 'razaviKhorasan.mashhad': 78 }" />
+  <IranMap v-if="catalogs" mode="county" :catalogs="catalogs" :data="{ 'razaviKhorasan.mashhad': 78 }" />
 </template>
 ```
 
-`catalogs` is merged over the entry's defaults. Marking a catalog as missing (for example `mode="county"` without counties) logs a development-only warning and renders nothing for that layer.
-
-### Styles
-
-One stylesheet covers the map, the score bands and the tooltip (it includes core's `styles.css`). Importing the package links it automatically in bundlers that handle CSS. For SSR setups that skip side-effect CSS, import it explicitly:
-
-```ts
-import '@msameim181/iran-map-vue/style.css'
-```
+Replace the object (or its fields) to change it; do not mutate loaded arrays in place. A feature whose catalog is missing (for example `mode="county"` without counties) logs a development-only warning and renders nothing for that layer.
 
 ## Events
 
@@ -100,25 +122,31 @@ The React callbacks became Vue events:
 | (controlled selection)  | `v-model:selected-area`      | `string \| null`                                                            |
 | `ScoreBands onChange`   | `@change` or `v-model:bands` | `IranMapColorBand[]`                                                        |
 
-Clicking an area selects it; clicking it again, clicking the map background, or clicking outside the map deselects it. Pass `v-model:selected-area` with a `ref<string | null>` to control selection yourself. `ScoreBands` renders as an editor only when a `change` or `update:bands` listener is attached; otherwise it is a read-only legend.
+Clicking an area selects it; clicking it again, clicking the map background, or clicking outside the map deselects it. Pass `v-model:selected-area` with a `ref<string | null>` to control selection yourself (`null` means nothing selected; switching back to `undefined` falls back to the internal selection and warns in development).
+
+`ScoreBands` renders as an editor when a `change` or `update:bands` listener is attached (checked on every render), or when `editable` is set explicitly; otherwise it is a read-only legend. In the editor, an empty bound is held back while you type and committed as unbounded on blur or Enter, so typing a negative number never flashes an empty bound.
+
+Capital markers are keyboard-focusable buttons only when a `capital-select` listener is attached; otherwise they only show their tooltip. The map itself is a labelled `role="group"`. Auto-repeat Enter is ignored and Space activates on key release, like a native button; Escape hides the tooltip and clears the selection. `@capital-select.once` counts as a listener; if a listener is added or removed dynamically, set `capitals-interactive` explicitly (Vue does not re-render a child when an event listener changes). Inside `<KeepAlive>`, a deactivated map stops listening for outside clicks and hides its tooltip.
 
 ## Tooltip
 
-A single native element per map, with no dependency:
+A single native element per map, appended to the owning document's `<body>` (so scaled, rotated or clipped ancestors cannot offset or crop it), with no dependency:
 
-- **Mouse:** appears next to the pointer on hover and follows it; flips and clamps to stay inside the viewport.
+- **Mouse:** appears next to the pointer on hover and follows it (one update per frame); flips and clamps to stay inside the viewport.
 - **Keyboard:** appears above the focused area, island or capital and hides on blur or Escape.
-- **Touch:** a tap shows the tooltip next to the tap point (via the browser's emulated hover) and selects the area; tapping anywhere else dismisses it.
+- **Touch:** a tap shows the tooltip next to the tap point (via the browser's emulated hover) and selects the area; tapping anywhere else dismisses it. This path is covered by unit tests only; it has not been verified on a physical device.
 
-The text is the element's `aria-label`, so screen readers get the same information.
+The text is the element's `aria-label`, so screen readers get the same information. It stays in sync when data, mode or `tooltip-title` change under the pointer, and is hidden (with `hover(null)`) when the hovered shape disappears.
+
+Style it with CSS variables: `--iran-map-tooltip-bg`, `--iran-map-tooltip-color`, `--iran-map-tooltip-radius`, `--iran-map-tooltip-shadow`, `--iran-map-tooltip-font-size`, `--iran-map-tooltip-max-width`, `--iran-map-tooltip-padding`.
 
 ## Performance
 
-Rendering is cheap (a province map is about 500 DOM nodes; the county map about 3,200), and pointer events use one delegated listener per map. The map rebuilds its model whenever a prop _identity_ changes, so keep object and array props stable: define `regions`, `colorBands`, `detailedCounties` and `data` once (a `ref`, `computed` or constant) instead of writing a fresh `[]` or `{}` in the template of a component that re-renders often.
+Rendering is cheap (a province map is about 500 DOM nodes; the county map about 3,200), pointer events use one delegated listener per map, and shapes are memoized so a selection change only patches the shapes that changed (a county-mode selection re-render dropped from a 3.9 ms median to 1.0 ms in the jsdom benchmark in `bench/`). The map rebuilds its model whenever a prop _identity_ changes, so keep object and array props stable: define `regions`, `colorBands`, `detailedCounties` and `data` once (a `ref`, `computed` or constant) instead of writing a fresh `[]` or `{}` in the template of a component that re-renders often.
 
 ## Props
 
-Same names, types and defaults as the React component (use kebab-case in templates).
+Same names, types and defaults as the React component (use kebab-case in templates), except the React-only tooltip props (`tooltip`, `tooltipId`, `tooltipDisableStyleInjection`); the Vue package has `capitalsInteractive` and (on `ScoreBands`) `editable` instead of detecting listeners that change dynamically.
 
 | Prop                                      | Type                                                   | Default             | Description                                         |
 | ----------------------------------------- | ------------------------------------------------------ | ------------------- | --------------------------------------------------- |
@@ -144,42 +172,43 @@ Same names, types and defaults as the React component (use kebab-case in templat
 | `showSeaLabels`, `seaLabelColor`          | `boolean`, `string`                                    | `true`, `'#477983'` | Sea labels                                          |
 | `showIslands`, `showIslandLabels`         | `boolean`                                              | `true`              | Islands and their labels                            |
 
-`ScoreBands` props: `bands` (required), `scale` (`'score' \| 'numeric'`), `min`, `max`, `metricLabel`, `orientation`, `formatValue`, `showNoData`, `noDataColor`, `noDataLabel`, `className`.
+`ScoreBands` props: `bands` (required), `scale` (`'score' \| 'numeric'`), `min`, `max`, `metricLabel`, `orientation`, `formatValue`, `showNoData`, `noDataColor`, `noDataLabel`, `className`, `editable`.
 
 See the [React twin's README](https://github.com/Msameim181/iran-map-react#readme) for the full behavior guide (no-data rules, regions, focus mode); the Vue component behaves the same way.
 
 ## Bundle size
 
-Measured with `npm run size` (gzip, minified):
+Measured by `npm run size` against the packed tarball (gzip, minified, a tiny Vue app per scenario; budgets are enforced in CI):
 
-| What                                                            | gzip      |
-| --------------------------------------------------------------- | --------- |
-| This package (`IranMap` + `ScoreBands` + tooltip, ESM JS)       | 5.6 kB    |
-| Stylesheet (map, bands and tooltip)                             | 1.4 kB    |
-| Wrapper plus core logic in a province-only app (excluding data) | 6.3 kB    |
-| Province polygons and capitals data (the lean catalogs)         | 399.7 kB  |
-| Province-only app, whole delta over Vue                         | 406.0 kB  |
-| `/full` app (counties, islands, seas, county capitals), delta   | 1898.6 kB |
+| Scenario                               | Total incl. Vue | Over Vue  |
+| -------------------------------------- | --------------- | --------- |
+| Vue only (baseline)                    | 24.4 kB         | -         |
+| `ScoreBands` only (bare root import)   | 26.7 kB         | 2.3 kB    |
+| Lean map (provinces + capitals)        | 432.4 kB        | 408.0 kB  |
+| `/lite` map (every layer, lite level)  | 228.2 kB        | 203.8 kB  |
+| `/full` map (every layer, full detail) | 1925.5 kB       | 1901.1 kB |
 
-The wrapper and its logic are tiny; the map data dominates. The lean entry ships only provinces and province capitals; use `/full` or pass `catalogs` only when you need counties or geography.
+The stylesheet is about 1.6 kB gzipped. The wrapper and its logic are about 7 kB; the map data dominates, which is why the root entry is lean and lighter levels exist.
 
 ## Development
 
 ```bash
 npm ci
-npm test            # Vitest + Vue Test Utils
+npm test               # Vitest + Vue Test Utils (jsdom; SSR tests run in node)
 npm run lint
 npm run typecheck
-npm run build       # ESM + CJS + .d.ts in dist/
-npm run size        # gzip report
-npm run demo        # Vue demo with every layer
+npm run build          # ESM, CJS and declarations in dist/
+npm run check:package  # publint + are-the-types-wrong on the packed tarball
+npm run smoke          # packed package under Node require/import, Vite SSR, renderToString
+npm run size           # gzip report (add -- --check to enforce budgets)
+npm run demo           # Vue demo with every layer and data level
 ```
 
-Node.js 22 or newer. Installing needs a GitHub token with `read:packages` (see Installation), because `@msameim181/iran-map-core` also comes from GitHub Packages; CI uses `GITHUB_TOKEN`. The [Pages workflow](.github/workflows/pages.yml) builds the demo with `--base /iran-map-vue/`.
+Node.js 22 for development; the built package runs on Node 18 and newer. The [Pages workflow](.github/workflows/pages.yml) builds the demo with `--base /iran-map-vue/`.
 
 ## Known issues
 
-- The `ScoreBands` editor commits every valid intermediate value while you type (as in the legacy component). For example, typing `-5` into a bound first commits an empty, unbounded bound, then rejects `-5`. Planned for 0.2 (tracked in [#1](https://github.com/Msameim181/iran-map-vue/issues/1)); the fix lives in core's `editBound` and will land in the React and Vue wrappers together.
+- Real touch behavior (tap to show and dismiss the tooltip) has been verified in unit tests but not on a physical touch device.
 
 ## Data attribution
 

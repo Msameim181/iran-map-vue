@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import App from '../example/src/App.vue'
 import { byTestId, count, countyBoundaries, fill, mountAttached } from './helpers'
@@ -23,8 +23,14 @@ const labelledInput = (label: string) =>
     .querySelector('input, select') as HTMLInputElement
 const showChecks = () => document.querySelectorAll('input[aria-label^="Show "]')
 
-const renderFocus = async () => {
+// The demo loads its data level lazily, so wait for the map before interacting.
+const mountDemo = async () => {
   mountAttached(App)
+  await vi.waitFor(() => expect(document.querySelector('.iran-map-area')).not.toBeNull(), { timeout: 20000 })
+}
+
+const renderFocus = async () => {
+  await mountDemo()
   const radio = Array.from(document.querySelectorAll('[role="radio"]')).find((el) =>
     /Province focus/.test(el.textContent!),
   )!
@@ -185,5 +191,25 @@ describe('Demo county controls', () => {
     await type(value, '-1')
     expect(fill(path())).toBe('#e6e6e6')
     expect(noData.checked).toBe(true)
+  })
+
+  it('switches the data level lazily and keeps ids and names', async () => {
+    await mountDemo()
+    const level = (name: string) =>
+      Array.from(document.querySelectorAll('[aria-label="Map data level"] [role="radio"]')).find(
+        (el) => el.textContent!.trim() === name,
+      )!
+    expect(level('Full').getAttribute('aria-checked')).toBe('true')
+    const before = byTestId('iran-map-province-tehran').getAttribute('aria-label')
+    const fullPath = byTestId('iran-map-province-tehran').getAttribute('d')!
+
+    await click(level('Mini'))
+    await vi.waitFor(() => expect(byTestId('iran-map-province-tehran').getAttribute('d')).not.toBe(fullPath), {
+      timeout: 20000,
+    })
+    expect(level('Mini').getAttribute('aria-checked')).toBe('true')
+    expect(byTestId('iran-map-province-tehran').getAttribute('aria-label')).toBe(before)
+    expect(count('[data-area-type="province"]')).toBe(31)
+    expect(count('[data-area-type="county"]')).toBe(3)
   })
 })
