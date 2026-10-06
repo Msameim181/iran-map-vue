@@ -222,4 +222,42 @@ describe('Standalone ScoreBands', () => {
     await commit(maximum, '60') // commits band 1 with both drafts: the partial entry must not appear as blank
     expect(onChange).toHaveBeenLastCalledWith([{ min: 10, max: 60, color: '#123456' }])
   })
+
+  it('keeps a partial entry in the field across re-renders instead of restoring the old bound', async () => {
+    const onChange = vi.fn()
+    const wrapper = mountAttached(ScoreBands, {
+      props: { bands: [{ min: 25, max: 50, color: '#123456' }], scale: 'numeric', min: -100, max: 100, onChange },
+    })
+    const minimum = field(wrapper.element, 'Minimum (inclusive)')
+    expect(minimum.value).toBe('25')
+
+    // A browser leaves value '' + validity.badInput while "-" is typed into a number input.
+    minimum.value = ''
+    Object.defineProperty(minimum, 'validity', { value: { badInput: true }, configurable: true })
+    minimum.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    expect(minimum.getAttribute('aria-invalid')).toBe('true')
+
+    // Any re-render (here: a prop change) must not write the committed 25 over the text being typed.
+    await wrapper.setProps({ metricLabel: 'Revenue' })
+    expect(minimum.value).toBe('')
+    expect(onChange).not.toHaveBeenCalled()
+
+    // The entry completes to -5 and commits on blur/Enter.
+    Object.defineProperty(minimum, 'validity', { value: { badInput: false }, configurable: true })
+    await commit(minimum, '-5')
+    expect(onChange).toHaveBeenLastCalledWith([{ min: -5, max: 50, color: '#123456' }])
+  })
+
+  it('shows -5 as invalid and does not commit it on the 0-100 score scale', async () => {
+    const onChange = vi.fn()
+    const wrapper = mountAttached(ScoreBands, {
+      props: { bands: [{ min: 25, max: 50, color: '#123456' }], onChange },
+    })
+    const minimum = field(wrapper.element, 'Minimum (inclusive)')
+    await commit(minimum, '-5')
+    expect(onChange).not.toHaveBeenCalled()
+    expect(minimum.getAttribute('aria-invalid')).toBe('true')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+  })
 })

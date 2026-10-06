@@ -56,13 +56,20 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
   setup(props, { emit }) {
     const instance = getCurrentInstance()!
     const drafts = ref<ScoreBandDrafts>({})
+    // Fields holding a partial entry ("-", "3-0"). A number input reports '' for these, so they are
+    // rendered as value '' (never the old bound): otherwise any re-render would write the committed
+    // value over the text being typed and make negative numbers untypeable.
+    const partial = ref<Record<string, true>>({})
     // Drafts belong to the committed bands we emitted; bands replaced from outside reset them.
     let lastEmitted: IranMapColorBand[] | undefined
     watch(
       () => props.bands,
       (bands) => {
         // toRaw: a parent holding the bands in a ref sees (and passes back) a reactive proxy.
-        if (toRaw(bands) !== lastEmitted) drafts.value = {}
+        if (toRaw(bands) !== lastEmitted) {
+          drafts.value = {}
+          partial.value = {}
+        }
       },
     )
 
@@ -76,16 +83,26 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
     const editable = () => props.editable ?? hasListener(instance, 'onChange', 'onUpdate:bands')
     // Typing only records text; the band changes on blur/Enter (the native `change` event), when a
     // blank bound becomes "unbounded". A partial entry such as "-" (badInput) never commits.
+    const setPartial = (key: string, on: boolean) => {
+      if (on === !!partial.value[key]) return
+      const next = { ...partial.value }
+      if (on) next[key] = true
+      else delete next[key]
+      partial.value = next
+    }
     const onBoundInput = (index: number, field: ScoreBandField, event: Event) => {
       const input = event.target as HTMLInputElement
-      // A number input reports '' for a partial entry ("-", "3-0"); recording that would later
-      // commit as "unbounded". Only a field the person really cleared counts as blank.
-      if (input.validity?.badInput) return
+      const key = getDraftKey(index, field)
+      // Record no draft for a partial entry: it would later commit as "unbounded". Only a field
+      // the person really cleared counts as blank.
+      if (input.validity?.badInput) return setPartial(key, true)
+      setPartial(key, false)
       drafts.value = setDraft(drafts.value, index, field, input.value)
     }
     const onBoundChange = (index: number, field: ScoreBandField, event: Event) => {
       const input = event.target as HTMLInputElement
       if (input.validity?.badInput) return
+      setPartial(getDraftKey(index, field), false)
       const withText = setDraft(drafts.value, index, field, input.value)
       const edit = commitDraft(props.bands, withText, index, props.scale)
       drafts.value = edit.drafts
@@ -94,6 +111,7 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
     const removeAt = (index: number) => {
       const result = removeBandWithDrafts(props.bands, drafts.value, index)
       drafts.value = result.drafts
+      partial.value = {}
       commit(result.bands)
     }
     const textInput = (handler: (value: string) => void) => (event: Event) =>
@@ -124,8 +142,12 @@ export const ScoreBands = /* @__PURE__ */ defineComponent({
                   min: limits.min,
                   max: limits.max,
                   placeholder: 'Unbounded',
-                  value: drafts.value[getDraftKey(index, field)] ?? band[field] ?? '',
-                  'aria-invalid': !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
+                  value: partial.value[getDraftKey(index, field)]
+                    ? ''
+                    : (drafts.value[getDraftKey(index, field)] ?? band[field] ?? ''),
+                  'aria-invalid':
+                    !!partial.value[getDraftKey(index, field)] ||
+                    !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
                   onInput: (event: Event) => onBoundInput(index, field, event),
                   onChange: (event: Event) => onBoundChange(index, field, event),
                 }),
