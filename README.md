@@ -154,7 +154,8 @@ Measured with `npm run size` (gzip, minified):
 
 | What                                                            | gzip      |
 | --------------------------------------------------------------- | --------- |
-| This package (`IranMap` + `ScoreBands` + tooltip, ESM)          | 5.6 kB    |
+| This package (`IranMap` + `ScoreBands` + tooltip, ESM JS)       | 5.6 kB    |
+| Stylesheet (map, bands and tooltip)                             | 1.4 kB    |
 | Wrapper plus core logic in a province-only app (excluding data) | 6.3 kB    |
 | Province polygons and capitals data (the lean catalogs)         | 399.7 kB  |
 | Province-only app, whole delta over Vue                         | 406.0 kB  |
