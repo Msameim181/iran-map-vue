@@ -1,0 +1,21 @@
+/* Native tooltip. Map and score-band styles come from @msameim181/iran-map-core/styles.css. */
+.iran-map-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  max-width: min(320px, calc(100vw - 12px));
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: #fff;
+  color: #222;
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+  white-space: normal;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.16);
+}
+
+.iran-map-tooltip[hidden] {
+  display: none;
+}
