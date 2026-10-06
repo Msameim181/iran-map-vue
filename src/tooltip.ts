@@ -1,4 +1,4 @@
-// Tiny native tooltip. One absolutely-free `position: fixed` element per map, driven imperatively
+// Tiny native tooltip. One `position: fixed` element per map, driven imperatively
 // (no reactivity, no re-render of the map on mouse move). Browser-only: every function is called
 // from event handlers or onMounted, never during setup/render, so SSR is unaffected.
 
@@ -19,6 +19,10 @@ export interface Tooltip {
 export const createTooltip = (el: HTMLElement): Tooltip => {
   let width = 0
   let height = 0
+  // `position: fixed` is relative to the nearest transformed/filtered ancestor, not the viewport,
+  // so measure where (0, 0) really is each time the tooltip opens and translate relative to it.
+  let originX = 0
+  let originY = 0
   const place = (x: number, y: number, centered = false) => {
     const vw = document.documentElement.clientWidth
     const vh = document.documentElement.clientHeight
@@ -29,13 +33,17 @@ export const createTooltip = (el: HTMLElement): Tooltip => {
     if (top + height + MARGIN > vh) top = (centered ? y : y - OFFSET) - height - OFFSET
     left = Math.max(MARGIN, Math.min(left, vw - width - MARGIN))
     top = Math.max(MARGIN, top)
-    el.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`
+    el.style.transform = `translate(${Math.round(left - originX)}px, ${Math.round(top - originY)}px)`
   }
   const reveal = (text: string) => {
     el.textContent = text
     el.hidden = false
-    width = el.offsetWidth
-    height = el.offsetHeight
+    el.style.transform = ''
+    const box = el.getBoundingClientRect()
+    originX = box.left
+    originY = box.top
+    width = box.width
+    height = box.height
   }
   return {
     showAtPoint(text, x, y) {
