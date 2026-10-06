@@ -21,7 +21,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background: linear-gradient(rgba(18, 63, 75, 0.045) 1px, transparent 1px),
+  background:
+    linear-gradient(rgba(18, 63, 75, 0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(18, 63, 75, 0.045) 1px, transparent 1px), var(--mist);
   background-size: 28px 28px;
 }

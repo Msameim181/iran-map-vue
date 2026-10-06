@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { IranMap, ScoreBands } from '../../src'
-import { catalogs, countyBoundaries, normalizeMapValue, provinceBoundaries } from './core'
+import { ScoreBands } from '../../src'
+import { IranMap } from '../../src/full'
+import { countyBoundaries, normalizeMapValue, provinceBoundaries } from './core'
 import type {
   IranMapArea,
   IranMapCapital,
@@ -97,7 +98,9 @@ const data = computed<Record<string, IranMapValue>>(() => ({
     ? { [focusProvinceId.value]: null }
     : {}),
 }))
-const provinceCounties = computed(() => countyBoundaries.filter((county) => county.provinceId === focusProvinceId.value))
+const provinceCounties = computed(() =>
+  countyBoundaries.filter((county) => county.provinceId === focusProvinceId.value),
+)
 const selectedCountyIds = computed(() =>
   provinceCounties.value.filter((county) => enabledCounties[county.id]).map((county) => county.id),
 )
@@ -119,7 +122,9 @@ const activeArea = computed(() => {
   if (!area) return null
   return {
     ...area,
-    value: Object.prototype.hasOwnProperty.call(data.value, area.id) ? normalizeMapValue(data.value[area.id]) : area.value,
+    value: Object.prototype.hasOwnProperty.call(data.value, area.id)
+      ? normalizeMapValue(data.value[area.id])
+      : area.value,
   }
 })
 const activeCapital = computed(() => (hoveredArea.value ? null : selectedCapital.value))
@@ -410,7 +415,6 @@ const onIslandSelect = (island: IranMapIsland) => {
             :focus-province="demoMode === 'focus' ? focusProvinceId : undefined"
             :regions="demoMode === 'region' ? regions : []"
             :detailed-counties="detailedCounties"
-            :catalogs="catalogs"
             :data="data"
             :color-bands="colorBands"
             width="100%"

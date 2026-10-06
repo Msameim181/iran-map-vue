@@ -8,5 +8,6 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     globals: false,
     restoreMocks: true,
+    setupFiles: ['tests/setup.ts'],
   },
 })

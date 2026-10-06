@@ -92,7 +92,9 @@ const hasDraftError = computed(() =>
             :disabled="!enabledCounties[county.id] || isNoData(county.id)"
             :aria-label="`${county.name} ${metricName}`"
             :aria-invalid="!!enabledCounties[county.id] && isInvalid(county.id)"
-            :aria-describedby="enabledCounties[county.id] && isInvalid(county.id) ? 'county-value-error' : 'county-value-help'"
+            :aria-describedby="
+              enabledCounties[county.id] && isInvalid(county.id) ? 'county-value-error' : 'county-value-help'
+            "
             @input="emit('value-change', county.id, ($event.target as HTMLInputElement).value)"
           />
           <label class="county-no-data">
