@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Dry run: the same verify and smoke jobs, then `npm publish --dry-run` against both registries.
+  # Never publishes or releases (those jobs only run for a tag push); run it on a branch with
+  # `gh workflow run release.yml --ref <branch>` before merging workflow or action changes.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,14 +28,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Tag must be on main and match package.json
+      - name: Tag must be on main and match package.json (dry runs only read the version)
         id: meta
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::Tag ${GITHUB_REF_NAME} is not on main."; exit 1; }
           version="$(node -p "require('./package.json').version")"
-          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version $version."; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::Tag ${GITHUB_REF_NAME} is not on main."; exit 1; }
+            [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version $version."; exit 1; }
+          else
+            echo "Dry run on ${GITHUB_REF_NAME} (package.json $version): tag checks skipped, nothing will be published."
+          fi
           if grep -q '"file:' package.json; then echo "::error::package.json has a file: dependency."; exit 1; fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           case "$version" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
@@ -98,6 +106,7 @@ jobs:
 
   publish-github:
     needs: [verify, smoke-node]
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -132,7 +141,7 @@ jobs:
   # NPM_PUBLISH is 'true' (set after configuring the trusted publisher for this package on npmjs).
   publish-npm:
     needs: [verify, smoke-node]
-    if: ${{ vars.NPM_PUBLISH == 'true' }}
+    if: ${{ github.event_name == 'push' && vars.NPM_PUBLISH == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -166,6 +175,7 @@ jobs:
 
   github-release:
     needs: [verify, publish-github]
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -189,3 +199,66 @@ jobs:
           [ -s "$RUNNER_TEMP/notes.md" ] || echo "See CHANGELOG.md." > "$RUNNER_TEMP/notes.md"
           flags=(); [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+
+  # Dry run only (workflow_dispatch): same actions and setup as publish-npm, ending in a dry-run
+  # publish. Read-only token, no id-token, no provenance. `npm view` is run as the real job does, so
+  # an .npmrc / NODE_AUTH_TOKEN problem in setup-node shows up here; only a 404 is acceptable.
+  dry-run-publish-npm:
+    needs: [verify, smoke-node]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+      - name: Use a pinned npm with trusted publishing support
+        run: npm install -g npm@11.21.0
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Registry lookup and dry-run publish to npmjs.org
+        run: |
+          set -euo pipefail
+          rc=0; out="$(npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://registry.npmjs.org 2>&1)" || rc=$?
+          echo "npm view exit $rc: $out"
+          if [ "$rc" -ne 0 ] && ! grep -q E404 <<<"$out"; then echo "::error::npm view failed for a reason other than 404."; exit 1; fi
+          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --access public --registry https://registry.npmjs.org --tag next
+
+  # Dry run only: mirrors publish-github (NODE_AUTH_TOKEN from GITHUB_TOKEN) with read-only packages access.
+  dry-run-publish-github:
+    needs: [verify, smoke-node]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          registry-url: https://npm.pkg.github.com
+          scope: '@msameim181'
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/tarball
+      - name: Registry lookup and dry-run publish to GitHub Packages
+        run: |
+          set -euo pipefail
+          rc=0; out="$(npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://npm.pkg.github.com 2>&1)" || rc=$?
+          echo "npm view exit $rc: $out"
+          if [ "$rc" -ne 0 ] && ! grep -q E404 <<<"$out"; then echo "::error::npm view failed for a reason other than 404."; exit 1; fi
+          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --registry https://npm.pkg.github.com --tag next
