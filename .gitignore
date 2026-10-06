@@ -4,3 +4,4 @@ demo-dist
 *.tsbuildinfo
 coverage
 .DS_Store
+.size-tmp
