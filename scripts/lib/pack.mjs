@@ -3,9 +3,11 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-export const root = resolve(import.meta.dirname, '..', '..')
+// Not import.meta.dirname: this script also runs on Node 18, which does not have it.
+export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 export const PACKAGE = '@msameim181/iran-map-vue'
 
 export const createConsumer = () => {
