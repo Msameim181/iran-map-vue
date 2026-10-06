@@ -1,16 +1,42 @@
 version: 2
 updates:
+  # Actions are pinned by SHA with a version comment; Dependabot keeps that form. Majors get their own
+  # PR so a runtime or behavior change (Node, artifact digests, npm auth) is reviewed on its own, and
+  # release.yml changes should be exercised with `gh workflow run release.yml --ref <branch>` (dry run).
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
-      actions:
+      actions-minor-patch:
         patterns: ['*']
+        update-types: [minor, patch]
+
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      timezone: Asia/Tehran
+    # A dependency joins the first group that matches, so typescript-eslint comes first.
     groups:
-      dev-dependencies:
-        dependency-type: development
+      # Plugin and parser must move together, majors included.
+      typescript-eslint:
+        patterns: ['@typescript-eslint/*']
+      lint:
+        patterns: ['eslint*', 'vue-eslint-parser']
+        update-types: [minor, patch]
+      build-test:
+        patterns: ['vite', '@vitejs/*', 'vitest*', '@vitest/*', 'jsdom']
+        update-types: [minor, patch]
+    # Held back until upgraded deliberately: ESLint 9+ needs flat config (this repo uses legacy
+    # .eslintrc on 8.x), TypeScript 6.1+ and jsdom 30+ break the current tooling, Vite majors are manual.
+    ignore:
+      - dependency-name: eslint
+        versions: ['>=9.0.0']
+      - dependency-name: typescript
+        versions: ['>=6.1.0']
+      - dependency-name: jsdom
+        versions: ['>=30.0.0']
+      - dependency-name: vite
+        update-types: ['version-update:semver-major']

@@ -58,6 +58,8 @@ After a release pull request is merged to `main`, a maintainer tags the matching
 
 The workflow runs lint, type checks, tests, build, package checks, packed-package smoke checks, and size budgets, then publishes the verified tarball to GitHub Packages using the workflow's `GITHUB_TOKEN`. npmjs publishing uses OIDC trusted publishing with `--access public --provenance`, no npm token, and runs only when the repository variable `NPM_PUBLISH` is `true`. Node.js 18 and 20 smoke jobs must also pass before publishing. Existing registry versions are skipped; prereleases use the `next` dist-tag, other releases use `latest`. GitHub release notes come from the version's `CHANGELOG.md` section.
 
+`v*` tags are immutable, so a failed release costs a version. Test `release.yml` or action changes first with a dry run: `gh workflow run release.yml --ref <branch>` runs verify, the Node.js 18/20 smoke jobs, and `npm publish --dry-run` against npmjs and GitHub Packages with the real jobs' setup. It cannot publish: the publish and release jobs only run for tag pushes. An already-published version is reported by npm under `--dry-run`; the dry run accepts only that error. OIDC provenance is exercised only by a real release.
+
 ## For agents that USE this package
 
 Install from npmjs without a token:
