@@ -234,7 +234,7 @@ jobs:
           echo "$pubout"
           if [ "$pub" -ne 0 ]; then
             # An already-published version is the case the real job skips; npm still reports it under --dry-run.
-            if [ "$rc" -eq 0 ] && grep -q 'previously published version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
+            if [ "$rc" -eq 0 ] && grep -Eq 'cannot publish over (the )?(previously published|existing) version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
           fi
 
   # Dry run only: mirrors publish-github (NODE_AUTH_TOKEN from GITHUB_TOKEN) with read-only packages access.
@@ -270,5 +270,5 @@ jobs:
           echo "$pubout"
           if [ "$pub" -ne 0 ]; then
             # An already-published version is the case the real job skips; npm still reports it under --dry-run.
-            if [ "$rc" -eq 0 ] && grep -q 'previously published version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
+            if [ "$rc" -eq 0 ] && grep -Eq 'cannot publish over (the )?(previously published|existing) version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
           fi
