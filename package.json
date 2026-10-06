@@ -1,7 +1,7 @@
 {
   "name": "@msameim181/iran-map-vue",
-  "version": "0.2.1",
-  "description": "Lightweight interactive SVG map of Iran for Vue 3",
+  "version": "0.2.2",
+  "description": "Vue 3 SVG map of Iran with provinces, counties, capitals, Persian names, choropleth colors, and typed selection events.",
   "type": "module",
   "main": "./dist/cjs/index.cjs",
   "module": "./dist/esm/index.js",
@@ -83,13 +83,20 @@
     "registry": "https://npm.pkg.github.com"
   },
   "keywords": [
-    "map",
     "iran",
     "iran-map",
+    "persian",
+    "farsi",
     "svg-map",
+    "geojson",
+    "provinces",
+    "counties",
     "choropleth",
+    "map",
+    "typescript",
     "vue",
-    "vue3"
+    "vue3",
+    "vue-component"
   ],
   "author": "Msameim181",
   "license": "MIT",

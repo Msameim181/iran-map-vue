@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-10-06
+
+Documentation and metadata only; no code changes.
+
+### Changed
+
+- README: new opening (summary, install, usage), a comparison with the unscoped `react-iran-map` and with raw GeoJSON/OSM files, the package family, and a Persian keyword line; the existing guide follows unchanged.
+- package.json: clearer `description` and extended `keywords` (Persian/Farsi, GeoJSON, provinces, counties, TypeScript, Vue component) for npm search.
+
+### Added
+
+- `llms.txt` (llmstxt.org format), also served from the demo site root at `https://msameim181.github.io/iran-map-vue/llms.txt`.
+- `AGENTS.md`: repository guide for contributor agents, plus a section for agents that use the package.
+
 ## [0.2.1] - 2026-10-06
 
 ### Changed

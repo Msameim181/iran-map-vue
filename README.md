@@ -1,10 +1,46 @@
 # @msameim181/iran-map-vue
 
-A lightweight, interactive SVG map of Iran for **Vue 3**. Province and county views, custom regions, choropleth color bands, capital markers, seas and islands, keyboard and screen-reader support, and a native tooltip with no runtime dependency besides Vue.
-
-It is a thin wrapper over [`@msameim181/iran-map-core`](https://github.com/Msameim181/iran-map-core), which holds the data and all map logic. A React twin, `@msameim181/iran-map-react`, behaves identically.
+Vue 3 SVG map of Iran with provinces, counties, capitals, and Persian names. A thin wrapper over [`@msameim181/iran-map-core`](https://github.com/Msameim181/iran-map-core), which holds the data and all map logic; the React twin, `@msameim181/iran-map-react`, behaves identically.
 
 [**Open the live demo →**](https://msameim181.github.io/iran-map-vue/)
+
+## Install
+
+Vue 3.5 or newer is required. Core data and logic install automatically. Installing from npmjs requires no token:
+
+```bash
+npm install @msameim181/iran-map-vue vue
+```
+
+Import `style.css` explicitly. This example uses the lean province entry:
+
+```vue
+<script setup lang="ts">
+import { IranMap } from '@msameim181/iran-map-vue'
+import type { IranMapArea } from '@msameim181/iran-map-vue'
+import '@msameim181/iran-map-vue/style.css'
+const data = { tehran: 42, razaviKhorasan: 68, fars: 25 }
+const onSelect = (area: IranMapArea) => console.log(area)
+</script>
+
+<template>
+  <IranMap :data="data" :width="640" tooltip-title="Score:" @select="onSelect" />
+</template>
+```
+
+## Comparison and related packages
+
+This package belongs to a three-package family forked from the original MIT `react-iran-map` project:
+
+- [`@msameim181/iran-map-core`](https://github.com/Msameim181/iran-map-core): framework-free data and map logic; [data-level comparison](https://msameim181.github.io/iran-map-core/).
+- [`@msameim181/iran-map-react`](https://github.com/Msameim181/iran-map-react): React components; [live demo](https://msameim181.github.io/iran-map-react/).
+- [`@msameim181/iran-map-vue`](https://github.com/Msameim181/iran-map-vue): Vue components; [live demo](https://msameim181.github.io/iran-map-vue/).
+
+Compared with the unscoped `react-iran-map` package, this family separates core logic and framework wrappers into scoped packages. The Vue wrapper has TypeScript declarations, SSR-safe imports and rendering, tree-shakeable entries, lean province defaults and opt-in `/full` catalogs. `/lite` includes every layer; core's `standard` and `mini` catalogs can be passed through `catalogs`. It provides a native tooltip, keyboard selection and ARIA labels, with counties, capitals, islands and seas available through the corresponding catalogs. npm releases use trusted publishing with provenance; see [CHANGELOG](CHANGELOG.md) and the [release workflow](.github/workflows/release.yml).
+
+Compared with raw GeoJSON, Natural Earth or OSM files, this package supplies ready SVG paths in a `1000 × 825` coordinate space, area IDs, Persian and English names, and selection and choropleth color logic through Vue components. Source attribution is in [NOTICE](NOTICE); this is an SVG catalog and component API.
+
+برای نقشه ایران در Vue، نمایش استان، شهرستان و مراکز استان با نام‌های فارسی و انتخاب ناحیه در نقشه تعاملی پشتیبانی می‌شود.
 
 ## Features
 

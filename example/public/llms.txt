@@ -1,0 +1,50 @@
+# @msameim181/iran-map-vue
+
+> Vue 3 SVG map of Iran with provinces, counties, capitals, Persian names, choropleth colors, selection events, and a native tooltip.
+
+Requires Vue 3.5 or newer. Install with `npm install @msameim181/iran-map-vue vue --registry=https://registry.npmjs.org`; npmjs installs require no token. Import `@msameim181/iran-map-vue/style.css` explicitly.
+
+The root entry includes province boundaries and province capitals. Use `/full` for every full-detail layer, `/lite` for every lite-detail layer, or pass `catalogs` for core's standard or mini data. `/score-bands` and `/create` import no map catalogs. Keep object and array props stable; hold lazily loaded catalogs in a `shallowRef`.
+
+JavaScript imports and server rendering do not require a DOM. Browser tooltip elements and outside-click listeners are created after mounting or from event handlers. For coding agents working in this repository, read AGENTS.md; for consumers, start with the README.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Msameim181/iran-map-vue/main/README.md): Installation, usage, entry points, props, events, SSR, and catalog guidance.
+- [CHANGELOG](https://raw.githubusercontent.com/Msameim181/iran-map-vue/main/CHANGELOG.md): Release history and packaging changes.
+- [Package exports](https://github.com/Msameim181/iran-map-vue/blob/main/package.json): Public entry points, stylesheet aliases, peers, and scripts.
+- [Lean map entry](https://github.com/Msameim181/iran-map-vue/blob/main/src/index.ts): IranMap with province boundaries and province capitals.
+- [Full map entry](https://github.com/Msameim181/iran-map-vue/blob/main/src/full.ts): IranMap with every full-detail catalog and catalog exports.
+- [Lite map entry](https://github.com/Msameim181/iran-map-vue/blob/main/src/lite.ts): IranMap with every lite-detail catalog and catalog exports.
+- [IranMap props and events](https://github.com/Msameim181/iran-map-vue/blob/main/src/props.ts): Prop definitions, defaults, and typed event payloads.
+- [Public types](https://github.com/Msameim181/iran-map-vue/blob/main/src/types.ts): Types re-exported from core.
+- [ScoreBands API](https://github.com/Msameim181/iran-map-vue/blob/main/src/ScoreBands.ts): Legend and editor props and behavior.
+- [Catalog factory](https://github.com/Msameim181/iran-map-vue/blob/main/src/create.ts): Catalog-free createIranMap entry.
+
+## Install
+
+- [npm package](https://www.npmjs.com/package/@msameim181/iran-map-vue): Public npmjs package; no install token needed.
+- [Installation instructions](https://github.com/Msameim181/iran-map-vue/blob/main/README.md#installation): Peer dependency, explicit CSS import, TypeScript CSS declarations, and optional GitHub Packages setup.
+
+## Examples
+
+- [Minimal usage](https://github.com/Msameim181/iran-map-vue/blob/main/README.md#quick-start): Province map with typed selection handler.
+- [Vue demo source](https://github.com/Msameim181/iran-map-vue/blob/main/example/src/App.vue): Province, county, mixed, focus, region, and data-level examples.
+- [Live Vue demo](https://msameim181.github.io/iran-map-vue/): Interactive example application.
+- [SSR test](https://github.com/Msameim181/iran-map-vue/blob/main/tests/ssr.test.ts): Rendering IranMap and ScoreBands without a browser DOM.
+
+## Related packages
+
+- [@msameim181/iran-map-core](https://github.com/Msameim181/iran-map-core): Framework-free data and logic.
+- [Core npm package](https://www.npmjs.com/package/@msameim181/iran-map-core): Data and model builders.
+- [Data-level comparison](https://msameim181.github.io/iran-map-core/): Full, standard, lite, and mini catalogs.
+- [@msameim181/iran-map-react](https://github.com/Msameim181/iran-map-react): React wrapper in the same family.
+- [React npm package](https://www.npmjs.com/package/@msameim181/iran-map-react): React components.
+- [Live React demo](https://msameim181.github.io/iran-map-react/): React example application.
+
+## Optional
+
+- [Agent instructions](https://github.com/Msameim181/iran-map-vue/blob/main/AGENTS.md): Repository layout, commands, conventions, and release procedure.
+- [Data attribution](https://raw.githubusercontent.com/Msameim181/iran-map-vue/main/NOTICE): OpenStreetMap and GeoNames sources and data licenses.
+- [MIT license](https://raw.githubusercontent.com/Msameim181/iran-map-vue/main/LICENSE): Application code license.
+- [Release workflow](https://github.com/Msameim181/iran-map-vue/blob/main/.github/workflows/release.yml): Tag verification, registry publishing, and npm provenance.
