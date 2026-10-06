@@ -134,7 +134,7 @@
     "vue-tsc": "^3.0.0"
   },
   "dependencies": {
-    "@msameim181/iran-map-core": "^0.1.0"
+    "@msameim181/iran-map-core": "^0.2.0"
   },
   "typesVersions": {
     "*": {
