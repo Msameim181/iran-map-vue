@@ -147,13 +147,17 @@ See the [React twin's README](https://github.com/Msameim181/iran-map-react#readm
 
 ## Bundle size
 
-Measured with `npm run size` (gzip, minified, Vue excluded from the delta):
+Measured with `npm run size` (gzip, minified):
 
-| Bundle                                  | gzip |
-| --------------------------------------- | ---- |
-| Wrapper (`dist/index.js` + CSS)         | TBD  |
-| Province-only consumer (delta over Vue) | TBD  |
-| `/full` consumer (delta over Vue)       | TBD  |
+| What                                                            | gzip      |
+| --------------------------------------------------------------- | --------- |
+| This package (`IranMap` + `ScoreBands` + tooltip, ESM)          | 5.6 kB    |
+| Wrapper plus core logic in a province-only app (excluding data) | 6.3 kB    |
+| Province polygons and capitals data (the lean catalogs)         | 399.7 kB  |
+| Province-only app, whole delta over Vue                         | 406.0 kB  |
+| `/full` app (counties, islands, seas, county capitals), delta   | 1898.6 kB |
+
+The wrapper and its logic are tiny; the map data dominates. The lean entry ships only provinces and province capitals; use `/full` or pass `catalogs` only when you need counties or geography.
 
 ## Development
 

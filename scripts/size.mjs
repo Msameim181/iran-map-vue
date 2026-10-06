@@ -40,6 +40,10 @@ const bundle = async (name, source) => {
 }
 
 const vueOnly = await bundle('baseline', `import { createApp, h } from 'vue'\ncreateApp({ render: () => h('div') }).mount('#app')`)
+const leanData = await bundle(
+  'lean-data',
+  `import { provinceBoundaries } from '@msameim181/iran-map-core/provinces'\nimport { provinceCapitalMarkers } from '@msameim181/iran-map-core/capitals/provinces'\nconsole.log(provinceBoundaries, provinceCapitalMarkers)`,
+)
 const province = await bundle(
   'province',
   `import { createApp, h } from 'vue'\nimport { IranMap } from '@iran-map-vue/index.js'\nimport '@iran-map-vue/style.css'\ncreateApp({ render: () => h(IranMap, { data: { tehran: 42 } }) }).mount('#app')`,
@@ -52,5 +56,6 @@ rmSync(tmp, { recursive: true, force: true })
 
 console.table(rows.map(([file, raw, gzip]) => ({ file, raw, gzip })))
 console.log(`Vue-only baseline (gzip JS): ${kb(vueOnly)}`)
-console.log(`Province-only consumer (gzip JS, incl. Vue): ${kb(province)}  ->  ours: ${kb(province - vueOnly)}`)
+console.log(`Lean catalogs alone (province polygons + capitals data, gzip): ${kb(leanData)}`)
+console.log(`Province-only consumer (gzip JS, incl. Vue): ${kb(province)}  ->  ours: ${kb(province - vueOnly)}  (wrapper + core logic: ${kb(province - vueOnly - leanData)})`)
 console.log(`Full-preset consumer   (gzip JS, incl. Vue): ${kb(full)}  ->  ours: ${kb(full - vueOnly)}`)
