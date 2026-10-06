@@ -177,6 +177,10 @@ npm run demo        # Vue demo with every layer
 
 Node.js 22 or newer. Installing needs a GitHub token with `read:packages` (see Installation), because `@msameim181/iran-map-core` also comes from GitHub Packages; CI uses `GITHUB_TOKEN`. The [Pages workflow](.github/workflows/pages.yml) builds the demo with `--base /iran-map-vue/`.
 
+## Known issues
+
+- The `ScoreBands` editor commits every valid intermediate value while you type (as in the legacy component). For example, typing `-5` into a bound first commits an empty, unbounded bound, then rejects `-5`. Planned for 0.2 (tracked in [#1](https://github.com/Msameim181/iran-map-vue/issues/1)); the fix lives in core's `editBound` and will land in the React and Vue wrappers together.
+
 ## Data attribution
 
 Administrative boundaries, physical coastlines and water bodies are derived from [OpenStreetMap](https://www.openstreetmap.org/copyright) data under the Open Data Commons Open Database License (ODbL) 1.0. Capital coordinates are primarily derived from [GeoNames](https://www.geonames.org/) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). See [`NOTICE`](NOTICE). These boundaries suit thematic cartography; they are not cadastral, surveying or legally authoritative.

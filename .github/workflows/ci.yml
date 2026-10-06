@@ -33,3 +33,14 @@ jobs:
         run: npm run build
       - name: Build demo
         run: npm run demo:build
+
+  workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      # Pinned to a release tag; also checks release.yml, which only runs on v* tags.
+      - name: Lint workflows
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color

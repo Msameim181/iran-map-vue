@@ -1,10 +1,8 @@
 name: Deploy demo to GitHub Pages
 
-# Manual only for now. To deploy on every push, add:
-#   push:
-#     branches: [main]
-# (after Pages is enabled with the "GitHub Actions" source in repository settings).
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
