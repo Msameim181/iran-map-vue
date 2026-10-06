@@ -1,0 +1,32 @@
+name: Set up iran-map-vue
+description: Node 22, a built iran-map-core checkout (dev-link), and npm ci.
+
+# Until @msameim181/iran-map-core is published, package.json depends on
+# "file:../iran-map-core". Actions cannot check out outside the workspace, so core is
+# checked out into the workspace and then moved next to it. Once core is published and
+# package.json uses a registry version, delete the "Check out core" and "Build core" steps.
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: npm
+        registry-url: https://npm.pkg.github.com
+        scope: '@msameim181'
+    - name: Check out core
+      uses: actions/checkout@v6
+      with:
+        repository: Msameim181/iran-map-core
+        path: iran-map-core
+    - name: Build core
+      shell: bash
+      run: |
+        mv iran-map-core "$(dirname "$GITHUB_WORKSPACE")/iran-map-core"
+        cd "$(dirname "$GITHUB_WORKSPACE")/iran-map-core"
+        npm ci
+        npm run build
+    - name: Install dependencies
+      shell: bash
+      run: npm ci

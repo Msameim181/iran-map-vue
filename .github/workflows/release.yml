@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Refuse to release with a dev-linked core
+        run: |
+          if grep -q '"file:' package.json; then
+            echo "package.json still has a file: dependency. Switch @msameim181/iran-map-core to its published version first." >&2
+            exit 1
+          fi
+      - name: Check tag matches package version
+        run: |
+          [ "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}" ] || {
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version." >&2
+            exit 1
+          }
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@msameim181'
+      - name: Install dependencies
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Publish to GitHub Packages
+        run: npm publish
+
+      # npmjs.org (optional, disabled). To enable: add an NPM_TOKEN repository secret,
+      # remove publishConfig.registry from package.json (or pass --registry), and uncomment.
+      # - name: Publish to npmjs.org
+      #   run: npm publish --access public --registry https://registry.npmjs.org
+      #   env:
+      #     NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
