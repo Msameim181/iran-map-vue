@@ -26,6 +26,8 @@ it('measures selection re-render cost in county mode with capital labels', async
   }
   times.sort((a, b) => a - b)
   const median = times[Math.floor(times.length / 2)]
-  console.log(`BENCH select re-render: median ${median.toFixed(1)} ms, p90 ${times[36].toFixed(1)} ms, nodes ${document.getElementsByTagName('*').length}`)
+  console.log(
+    `BENCH select re-render: median ${median.toFixed(1)} ms, p90 ${times[36].toFixed(1)} ms, nodes ${document.getElementsByTagName('*').length}`,
+  )
   wrapper.unmount()
 }, 120000)

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 import { ScoreBands } from '../../src'
-import { IranMap } from '../../src/full'
+import { IranMap } from '../../src'
 import { countyBoundaries, normalizeMapValue, provinceBoundaries } from './core'
 import type {
   IranMapArea,
   IranMapCapital,
   IranMapCapitalLayer,
+  IranMapCatalogs,
   IranMapColorBand,
   IranMapIsland,
   IranMapMode,
@@ -71,6 +72,53 @@ const demoData: Record<string, number> = {
   'tehran.tehran': 81,
   'fars.shiraz': 66,
 }
+
+type DataLevel = 'full' | 'standard' | 'lite' | 'mini'
+
+// Presets load on demand, so the initial page does not pay for data it is not showing.
+const dataLevels: Array<{ id: DataLevel; label: string; size: string; load: () => Promise<IranMapCatalogs> }> = [
+  {
+    id: 'full',
+    label: 'Full',
+    size: '~1.9 MB',
+    load: () => import('@msameim181/iran-map-core/full').then((m) => m.fullCatalogs),
+  },
+  {
+    id: 'standard',
+    label: 'Standard',
+    size: '~440 kB',
+    load: () => import('@msameim181/iran-map-core/standard').then((m) => m.standardCatalogs),
+  },
+  {
+    id: 'lite',
+    label: 'Lite',
+    size: '~200 kB',
+    load: () => import('@msameim181/iran-map-core/lite').then((m) => m.liteCatalogs),
+  },
+  {
+    id: 'mini',
+    label: 'Mini',
+    size: '~135 kB',
+    load: () => import('@msameim181/iran-map-core/mini').then((m) => m.miniCatalogs),
+  },
+]
+const dataLevel = ref<DataLevel>('full')
+// shallowRef: the catalogs are multi-MB and must never be made deeply reactive.
+const catalogs = shallowRef<IranMapCatalogs>()
+const loadingLevel = ref(false)
+let loadToken = 0
+const loadLevel = async (level: DataLevel) => {
+  const token = ++loadToken
+  dataLevel.value = level
+  loadingLevel.value = true
+  const loaded = await dataLevels.find((item) => item.id === level)!.load()
+  if (token !== loadToken) return // a newer choice superseded this one
+  catalogs.value = loaded
+  loadingLevel.value = false
+  clearInspection()
+}
+onMounted(() => loadLevel(dataLevel.value))
+const activeLevel = computed(() => dataLevels.find((item) => item.id === dataLevel.value))
 
 const demoMode = ref<DemoMode>('mixed')
 const selectedArea = ref<IranMapArea | null>(null)
@@ -339,6 +387,28 @@ const onIslandSelect = (island: IranMapIsland) => {
           <small>Physical coastlines replace maritime administrative envelopes.</small>
         </div>
 
+        <div class="capital-control data-control">
+          <div class="capital-control-heading">
+            <p class="panel-kicker">Data level</p>
+            <span>{{ loadingLevel ? 'loading…' : `${activeLevel?.size} gz` }}</span>
+          </div>
+          <div class="capital-options data-options" role="radiogroup" aria-label="Map data level">
+            <button
+              v-for="level in dataLevels"
+              :key="level.id"
+              type="button"
+              role="radio"
+              :aria-checked="dataLevel === level.id"
+              :class="{ 'is-active': dataLevel === level.id }"
+              :title="`${level.label}: ${level.size} gzipped, all layers`"
+              @click="loadLevel(level.id)"
+            >
+              {{ level.label }}
+            </button>
+          </div>
+          <small>Same ids and names at every level; lighter levels simplify the borders.</small>
+        </div>
+
         <div class="legend-block">
           <label class="metric-picker">
             <span class="panel-kicker">Metric name</span>
@@ -414,7 +484,10 @@ const onIslandSelect = (island: IranMapIsland) => {
         />
 
         <div :key="mapKey" class="map-canvas">
+          <p v-if="!catalogs" class="map-loading" role="status">Loading map data…</p>
           <IranMap
+            v-else
+            :catalogs="catalogs"
             :mode="activeMode"
             :focus-province="demoMode === 'focus' ? focusProvinceId : undefined"
             :regions="activeRegions"
