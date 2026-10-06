@@ -230,7 +230,12 @@ jobs:
           rc=0; out="$(npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://registry.npmjs.org 2>&1)" || rc=$?
           echo "npm view exit $rc: $out"
           if [ "$rc" -ne 0 ] && ! grep -q E404 <<<"$out"; then echo "::error::npm view failed for a reason other than 404."; exit 1; fi
-          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --access public --registry https://registry.npmjs.org --tag next
+          pub=0; pubout="$(npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --access public --registry https://registry.npmjs.org --tag next 2>&1)" || pub=$?
+          echo "$pubout"
+          if [ "$pub" -ne 0 ]; then
+            # An already-published version is the case the real job skips; npm still reports it under --dry-run.
+            if [ "$rc" -eq 0 ] && grep -q 'previously published version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
+          fi
 
   # Dry run only: mirrors publish-github (NODE_AUTH_TOKEN from GITHUB_TOKEN) with read-only packages access.
   dry-run-publish-github:
@@ -261,4 +266,9 @@ jobs:
           rc=0; out="$(npm view "@msameim181/iran-map-vue@$VERSION" version --registry https://npm.pkg.github.com 2>&1)" || rc=$?
           echo "npm view exit $rc: $out"
           if [ "$rc" -ne 0 ] && ! grep -q E404 <<<"$out"; then echo "::error::npm view failed for a reason other than 404."; exit 1; fi
-          npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --registry https://npm.pkg.github.com --tag next
+          pub=0; pubout="$(npm publish "$(ls "$RUNNER_TEMP"/tarball/*.tgz)" --dry-run --registry https://npm.pkg.github.com --tag next 2>&1)" || pub=$?
+          echo "$pubout"
+          if [ "$pub" -ne 0 ]; then
+            # An already-published version is the case the real job skips; npm still reports it under --dry-run.
+            if [ "$rc" -eq 0 ] && grep -q 'previously published version' <<<"$pubout"; then echo "Version $VERSION already exists: the real job would skip publishing."; else exit "$pub"; fi
+          fi
