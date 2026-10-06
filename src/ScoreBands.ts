@@ -1,38 +1,54 @@
 import { computed, defineComponent, getCurrentInstance, h, ref, watch } from 'vue'
 import type { PropType, VNode } from 'vue'
-import { isValidBand, isValidDomain, parseBound, rangeLabel } from './bands'
-import type { BandScale, BoundField } from './bands'
-import type { IranMapColorBand } from './types'
+import {
+  addBand,
+  applyDrafts,
+  editBound,
+  getBoundInputLimits,
+  getColorInputValue,
+  getDomainLabel,
+  getDraftKey,
+  getLegendItems,
+  getScoreBandsHeading,
+  getScoreBandsLabel,
+  hasInvalidBands,
+  isValidBand,
+  isValidDomain,
+  removeBand,
+  scoreBandsDefaults as d,
+  scoreBandsText as text,
+  updateBand,
+} from '@msameim181/iran-map-core'
+import type { IranMapColorBand, ScoreBandDrafts, ScoreBandField, ScoreBandScale } from '@msameim181/iran-map-core'
 
-const FIELDS: BoundField[] = ['min', 'max']
+const FIELDS: ScoreBandField[] = ['min', 'max']
 
 export const ScoreBands = defineComponent({
   name: 'ScoreBands',
   props: {
-    bands: { type: Array as PropType<IranMapColorBand[]>, required: true as const },
-    scale: { type: String as PropType<BandScale>, default: 'score' },
+    bands: { type: Array as PropType<IranMapColorBand[]>, required: true },
+    scale: { type: String as PropType<ScoreBandScale>, default: d.scale },
     /** Display domain. Defaults to 0–100; numeric scales may use any finite x–y domain. */
-    min: { type: Number, default: 0 },
-    max: { type: Number, default: 100 },
-    metricLabel: { type: String, default: 'Score' },
-    orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: 'horizontal' },
+    min: { type: Number, default: d.min },
+    max: { type: Number, default: d.max },
+    metricLabel: { type: String, default: d.metricLabel },
+    orientation: { type: String as PropType<'horizontal' | 'vertical'>, default: d.orientation },
     formatValue: { type: Function as PropType<(value: number) => string>, default: String },
-    showNoData: { type: Boolean, default: true },
-    noDataColor: { type: String, default: '#e6e6e6' },
-    noDataLabel: { type: String, default: 'No data' },
+    showNoData: { type: Boolean, default: d.showNoData },
+    noDataColor: { type: String, default: d.noDataColor },
+    noDataLabel: { type: String, default: d.noDataLabel },
     className: { type: String, default: '' },
   },
   // `change` (React onChange equivalent) and `update:bands` (v-model:bands) carry the same payload.
   emits: ['change', 'update:bands'],
   setup(props, { emit }) {
     const instance = getCurrentInstance()!
-    const drafts = ref<Record<string, string>>({})
+    const drafts = ref<ScoreBandDrafts>({})
     watch(
       () => props.bands,
       () => (drafts.value = {}),
     )
 
-    const label = computed(() => props.metricLabel.trim() || 'Score')
     const validDomain = computed(() => isValidDomain(props.min, props.max, props.scale))
     const commit = (next: IranMapColorBand[]) => {
       emit('change', next)
@@ -43,131 +59,106 @@ export const ScoreBands = defineComponent({
       const vnodeProps = instance.vnode.props || {}
       return !!(vnodeProps.onChange || vnodeProps['onUpdate:bands'])
     }
-
-    const draftBand = (band: IranMapColorBand, index: number) => {
-      const result = { ...band }
-      for (const field of FIELDS) {
-        const draft = drafts.value[`${index}:${field}`]
-        if (draft !== undefined) result[field] = parseBound(draft)
-      }
-      return result
+    const onBound = (index: number, field: ScoreBandField, value: string) => {
+      const edit = editBound(props.bands, drafts.value, index, field, value, props.scale)
+      drafts.value = edit.drafts
+      if (edit.bands) commit(edit.bands)
     }
-    const patch = (index: number, change: Partial<IranMapColorBand>) =>
-      commit(props.bands.map((item, position) => (position === index ? { ...item, ...change } : item)))
-    const updateBound = (index: number, field: BoundField, draft: string) => {
-      drafts.value = { ...drafts.value, [`${index}:${field}`]: draft }
-      const band = { ...draftBand(props.bands[index], index), [field]: parseBound(draft) }
-      if (isValidBand(band, props.scale)) {
-        commit(props.bands.map((item, position) => (position === index ? band : item)))
-      }
-    }
-
+    const textInput = (handler: (value: string) => void) => (event: Event) =>
+      handler((event.target as HTMLInputElement).value)
     const swatch = (color: string) =>
       h('span', { class: 'iran-score-bands-swatch', style: { backgroundColor: color }, 'aria-hidden': 'true' })
 
-    return () => {
-      const format = props.formatValue
-      const invalid = props.bands.some((band, index) => !isValidBand(draftBand(band, index), props.scale))
-      const children: VNode[] = [
-        h('header', { class: 'iran-score-bands-heading' }, [
-          h('h2', `${label.value} bands`),
-          validDomain.value ? h('span', `${format(props.min)} – ${format(props.max)}`) : null,
-        ]),
-        validDomain.value
-          ? null
-          : h(
-              'p',
-              { role: 'alert' },
-              'Use finite display endpoints with minimum below maximum. Score domains must stay within 0–100.',
-            ),
-        h('ul', { class: ['iran-score-bands-legend', `iran-score-bands-legend--${props.orientation}`] }, [
-          ...props.bands.map((band, index) =>
-            h('li', { key: index }, [
-              swatch(band.color),
-              h('strong', band.label || rangeLabel(band, format)),
-              band.label ? h('small', rangeLabel(band, format)) : null,
+    const renderEditor = (): VNode => {
+      const limits = getBoundInputLimits(props.scale)
+      return h('div', { class: 'iran-score-bands-editor' }, [
+        ...props.bands.map((band, index) =>
+          h('fieldset', { key: index }, [
+            h('legend', `Band ${index + 1}`),
+            h('label', [
+              h('span', 'Label'),
+              h('input', {
+                type: 'text',
+                value: band.label || '',
+                onInput: textInput((label) => commit(updateBand(props.bands, index, { label }))),
+              }),
             ]),
-          ),
-          props.showNoData ? h('li', [swatch(props.noDataColor), h('strong', props.noDataLabel)]) : null,
-        ]),
-        props.bands.length === 0 ? h('p', 'No bands configured.') : null,
-      ].filter(Boolean) as VNode[]
-
-      if (editable()) {
-        children.push(
-          h('div', { class: 'iran-score-bands-editor' }, [
-            ...props.bands.map((band, index) =>
-              h('fieldset', { key: index }, [
-                h('legend', `Band ${index + 1}`),
-                h('label', [
-                  h('span', 'Label'),
-                  h('input', {
-                    type: 'text',
-                    value: band.label || '',
-                    onInput: (event: Event) => patch(index, { label: (event.target as HTMLInputElement).value }),
-                  }),
-                ]),
-                ...FIELDS.map((field) =>
-                  h('label', { key: field }, [
-                    h('span', field === 'min' ? 'Minimum (inclusive)' : 'Maximum (exclusive)'),
-                    h('input', {
-                      type: 'number',
-                      step: 'any',
-                      min: props.scale === 'score' ? 0 : undefined,
-                      max: props.scale === 'score' ? 100 : undefined,
-                      placeholder: 'Unbounded',
-                      value: drafts.value[`${index}:${field}`] ?? band[field] ?? '',
-                      'aria-invalid': !isValidBand(draftBand(band, index), props.scale),
-                      onInput: (event: Event) => updateBound(index, field, (event.target as HTMLInputElement).value),
-                    }),
-                  ]),
-                ),
-                h('label', [
-                  h('span', 'Color'),
-                  h('input', {
-                    type: 'color',
-                    value: /^#[\da-f]{6}$/i.test(band.color) ? band.color : '#000000',
-                    onInput: (event: Event) => patch(index, { color: (event.target as HTMLInputElement).value }),
-                  }),
-                ]),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    'aria-label': `Remove band ${index + 1}`,
-                    onClick: () => commit(props.bands.filter((_, position) => position !== index)),
-                  },
-                  'Remove',
-                ),
+            ...FIELDS.map((field) =>
+              h('label', { key: field }, [
+                h('span', field === 'min' ? text.minimumLabel : text.maximumLabel),
+                h('input', {
+                  type: 'number',
+                  step: 'any',
+                  min: limits.min,
+                  max: limits.max,
+                  placeholder: 'Unbounded',
+                  value: drafts.value[getDraftKey(index, field)] ?? band[field] ?? '',
+                  'aria-invalid': !isValidBand(applyDrafts(band, drafts.value, index), props.scale),
+                  onInput: textInput((value) => onBound(index, field, value)),
+                }),
               ]),
             ),
-            invalid
-              ? h(
-                  'p',
-                  { role: 'alert' },
-                  'Use finite bounds with minimum below maximum. Score bounds must be between 0 and 100. Invalid edits do not change the map.',
-                )
-              : null,
+            h('label', [
+              h('span', 'Color'),
+              h('input', {
+                type: 'color',
+                value: getColorInputValue(band.color),
+                onInput: textInput((color) => commit(updateBand(props.bands, index, { color }))),
+              }),
+            ]),
             h(
               'button',
               {
                 type: 'button',
-                disabled: !validDomain.value,
-                onClick: () =>
-                  commit([...props.bands, { min: props.min, max: props.max, color: '#75b9ad', label: 'New band' }]),
+                'aria-label': `Remove band ${index + 1}`,
+                onClick: () => commit(removeBand(props.bands, index)),
               },
-              'Add band',
+              text.removeBand,
             ),
-            h('p', 'Blank bounds are unbounded. Bands are matched in order; the first matching band wins.'),
           ]),
-        )
-      }
+        ),
+        hasInvalidBands(props.bands, drafts.value, props.scale) ? h('p', { role: 'alert' }, text.invalidBands) : null,
+        h(
+          'button',
+          {
+            type: 'button',
+            disabled: !validDomain.value,
+            onClick: () => commit(addBand(props.bands, props.min, props.max)),
+          },
+          text.addBand,
+        ),
+        h('p', text.help),
+      ])
+    }
 
-      return h(
-        'section',
-        { class: ['iran-score-bands', props.className], 'aria-label': `${label.value} bands` },
-        children,
-      )
+    return () => {
+      const label = getScoreBandsLabel(props.metricLabel)
+      const legend = getLegendItems(props.bands, {
+        formatValue: props.formatValue,
+        showNoData: props.showNoData,
+        noDataColor: props.noDataColor,
+        noDataLabel: props.noDataLabel,
+      })
+      return h('section', { class: ['iran-score-bands', props.className], 'aria-label': `${label} bands` }, [
+        h('header', { class: 'iran-score-bands-heading' }, [
+          h('h2', getScoreBandsHeading(props.metricLabel)),
+          validDomain.value ? h('span', getDomainLabel(props.min, props.max, props.formatValue)) : null,
+        ]),
+        validDomain.value ? null : h('p', { role: 'alert' }, text.invalidDomain),
+        h(
+          'ul',
+          { class: ['iran-score-bands-legend', `iran-score-bands-legend--${props.orientation}`] },
+          legend.map((item, index) =>
+            h('li', { key: index }, [
+              swatch(item.color),
+              h('strong', item.title),
+              item.range ? h('small', item.range) : null,
+            ]),
+          ),
+        ),
+        props.bands.length === 0 ? h('p', text.noBands) : null,
+        editable() ? renderEditor() : null,
+      ])
     }
   },
 })

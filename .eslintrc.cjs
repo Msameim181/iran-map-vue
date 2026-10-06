@@ -15,6 +15,7 @@ module.exports = {
     extraFileExtensions: ['.vue'],
   },
   plugins: ['@typescript-eslint', 'prettier'],
+  overrides: [{ files: ['tests/**'], rules: { 'vue/one-component-per-file': 'off' } }],
   rules: {
     '@typescript-eslint/no-non-null-assertion': 'off',
     '@typescript-eslint/ban-ts-comment': 'off',

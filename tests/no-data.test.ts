@@ -21,7 +21,7 @@ describe('Map no-data values', () => {
         const area = byTestId(`iran-map-${mode}-${id}`)
         expect(fill(area)).toBe('#e6e6e6')
         expect(area.getAttribute('aria-label')).toContain('No data')
-        ;(area as HTMLElement).click()
+        area.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         await nextTick()
         expect(fill(area)).toBe('#e6e6e6')
         wrapper.unmount()

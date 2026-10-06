@@ -12,7 +12,7 @@ const mounted: VueWrapper[] = []
  * see real event paths, and track the wrapper so afterEach can unmount it.
  */
 export const mountAttached = <C extends Component>(component: C, options: Record<string, unknown> = {}) => {
-  const wrapper = mount(component, { ...options, attachTo: document.body }) as VueWrapper
+  const wrapper = mount(component, { ...options, attachTo: document.body }) as unknown as VueWrapper
   mounted.push(wrapper)
   return wrapper
 }

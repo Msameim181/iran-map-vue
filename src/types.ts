@@ -4,6 +4,8 @@ export type {
   IranMapCapital,
   IranMapCapitalLayer,
   IranMapCapitalType,
+  IranMapCatalogName,
+  IranMapCatalogs,
   IranMapColorBand,
   IranMapIsland,
   IranMapMode,
@@ -12,11 +14,10 @@ export type {
   IranMapWaterBody,
   MapBoundary,
   RegionAggregation,
+  RenderableMapArea,
+  RenderableMapIsland,
 } from '@msameim181/iran-map-core'
-export type { IranMapCatalogs } from './core'
+export type { ScoreBandScale } from '@msameim181/iran-map-core'
 
 /** Payload of the legacy-compatible `select-province` event. */
-export interface SelectedProvince {
-  name: string | undefined
-  faName: string | undefined
-}
+export type { selectedProvinceType as SelectedProvince } from '@msameim181/iran-map-core'

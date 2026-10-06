@@ -1,28 +1,48 @@
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, onMounted, ref, toRaw } from 'vue'
 import type { VNode } from 'vue'
-import { buildModel, getAreaTooltip, getCapitalTooltip, getIslandTooltip, toPublicArea, toPublicIsland } from './core'
-import type { IranMapCatalogs } from './core'
+import {
+  SELECTABLE_ELEMENT_SELECTOR,
+  buildMapModel,
+  getAreaFill,
+  getAreaTestId,
+  getAreaTooltip,
+  getCapitalMarkerGeometry,
+  getCapitalTestId,
+  getCapitalTooltip,
+  getDeselectProvince,
+  getIslandFill,
+  getIslandTestId,
+  getIslandTooltip,
+  getLabelMetrics,
+  getLabeledWaterBodies,
+  getProvinceLabelAreas,
+  isActivationKey,
+  iranMapDefaults,
+  resolveAreaSelection,
+  resolveDefaultSelectedArea,
+  resolveSelectedAreaColor,
+  toPublicArea,
+  toPublicIsland,
+} from '@msameim181/iran-map-core'
+import type { IranMapCatalogs, RenderableMapArea } from '@msameim181/iran-map-core'
 import { iranMapEmits, iranMapProps } from './props'
 import { createTooltip } from './tooltip'
 import type { Tooltip } from './tooltip'
-import type { IranMapCapital } from './types'
-import { warnMissingCatalogs } from './warn'
-
-const INTERACTIVE = '.iran-map-area, .iran-map-island, .iran-map-capital'
 
 const interactiveOf = (target: EventTarget | null): Element | null => {
   const node = target as Node | null
   const element = node?.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null)
-  return element?.closest(INTERACTIVE) ?? null
+  return element?.closest(SELECTABLE_ELEMENT_SELECTOR) ?? null
 }
 
 const stroke = { 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-miterlimit': 1 }
+const warned = new Set<string>()
 
 /**
  * Builds an IranMap component bound to default catalogs. The root entry binds the lean
  * (provinces-only) set and `/full` binds everything, so both share this one implementation.
  */
-export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
+export const createIranMap = (defaults: IranMapCatalogs) => {
   const lean = markRaw({ ...defaults })
 
   return defineComponent({
@@ -31,20 +51,12 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
     emits: iranMapEmits,
     setup(props, { emit }) {
       // Catalogs are multi-MB: never let Vue proxy them (toRaw undoes a parent's deep ref()).
-      const catalogs = computed(() => (props.catalogs ? markRaw({ ...lean, ...toRaw(props.catalogs) }) : lean)) as {
-        value: IranMapCatalogs
-      }
+      const catalogs = computed<IranMapCatalogs>(() =>
+        props.catalogs ? markRaw({ ...lean, ...toRaw(props.catalogs) }) : lean,
+      )
 
       const model = computed(() => {
-        const needs = {
-          mode: props.mode,
-          detailedCounties: props.detailedCounties,
-          showWater: props.showWater,
-          showIslands: props.showIslands,
-          capitalMarkers: props.capitalMarkers,
-        }
-        warnMissingCatalogs(needs, catalogs.value)
-        return buildModel(
+        const result = buildMapModel(
           {
             data: props.data,
             colorRange: props.colorRange,
@@ -58,17 +70,29 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
             deactiveProvinceColor: props.deactiveProvinceColor,
             capitalMarkers: props.capitalMarkers,
             showIslands: props.showIslands,
+            showWater: props.showWater,
             showLabels: props.showLabels,
           },
           catalogs.value,
         )
+        // Literal `process.env.NODE_ENV` check so consumer bundlers strip this in production.
+        if (process.env.NODE_ENV !== 'production') {
+          for (const warning of result.warnings) {
+            if (warned.has(warning)) continue
+            warned.add(warning)
+            console.warn(
+              `[iran-map-vue] ${warning}. Import IranMap from '@msameim181/iran-map-vue/full' or pass the catalog via the \`catalogs\` prop.`,
+            )
+          }
+        }
+        return result
       })
-      // Index lookups for delegated events (ids are unique per layer).
+      // Lookups for delegated events (ids are unique per layer).
       const islandsById = computed(() => new Map(model.value.islands.map((island) => [island.id, island])))
       const capitalsById = computed(() => new Map(model.value.capitals.map((capital) => [capital.id, capital])))
 
       // --- selection (uncontrolled by default; controlled when `selectedArea` is not undefined) ---
-      const inner = ref<string | undefined>(props.defaultSelectedArea || props.defaultSelectedProvince)
+      const inner = ref<string | undefined>(resolveDefaultSelectedArea(props))
       const selectedId = computed(() =>
         props.selectedArea !== undefined ? (props.selectedArea ?? undefined) : inner.value,
       )
@@ -79,21 +103,18 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
       const clearSelection = () => {
         const id = selectedId.value
         if (id === undefined) return
+        const province = getDeselectProvince(catalogs.value.provinces, id)
         setSelected(undefined)
         emit('deselect')
         emit('hover', null)
-        if (catalogs.value.provinces.some((province) => province.id === id)) {
-          emit('select-province', { name: undefined, faName: undefined })
-        }
+        if (province) emit('select-province', province)
       }
-      const handleSelect = (area: (typeof model.value.areas)[number], toggle = true) => {
-        if (toggle && area.id === selectedId.value) {
-          clearSelection()
-          return
-        }
-        setSelected(area.id)
-        emit('select', toPublicArea(area))
-        if (area.type === 'province') emit('select-province', { name: area.id, faName: area.faName })
+      const handleSelect = (area: RenderableMapArea, toggle = true) => {
+        const result = resolveAreaSelection(selectedId.value, area, toggle)
+        if (result.action === 'deselect') return clearSelection()
+        setSelected(result.selectedId)
+        emit('select', result.area)
+        if (result.province) emit('select-province', result.province)
       }
 
       // --- native tooltip + delegated events ---
@@ -108,25 +129,19 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
         activeEl = null
       }
 
-      /** Public area hovered for an element, or undefined for capitals (which only show a tooltip). */
+      /** The area an element stands for; capitals have none (they only show a tooltip). */
       const areaFor = (el: Element) => {
-        if (el.classList.contains('iran-map-area')) return model.value.areas[Number(el.getAttribute('data-index'))]
-        if (el.classList.contains('iran-map-island'))
-          return islandsById.value.get(el.getAttribute('data-island-id')!)?.area
+        if (el.hasAttribute('data-index')) return model.value.areas[Number(el.getAttribute('data-index'))]
+        if (el.hasAttribute('data-island-id')) return islandsById.value.get(el.getAttribute('data-island-id')!)?.area
         return undefined
       }
       const activate = (el: Element) => {
-        if (el.classList.contains('iran-map-capital')) {
-          const capital = capitalsById.value.get(el.getAttribute('data-capital-id')!)
-          if (capital) emit('capital-select', capital as IranMapCapital)
-          return
-        }
-        if (el.classList.contains('iran-map-island')) {
-          const island = islandsById.value.get(el.getAttribute('data-island-id')!)
-          if (!island) return
+        const capital = capitalsById.value.get(el.getAttribute('data-capital-id') ?? '')
+        if (capital) return emit('capital-select', capital)
+        const island = islandsById.value.get(el.getAttribute('data-island-id') ?? '')
+        if (island) {
           handleSelect(island.area, false)
-          emit('island-select', toPublicIsland(island), toPublicArea(island.area))
-          return
+          return emit('island-select', toPublicIsland(island), toPublicArea(island.area))
         }
         const area = areaFor(el)
         if (area) handleSelect(area)
@@ -173,7 +188,7 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
       }
       const onKeydown = (event: KeyboardEvent) => {
         if (event.key === 'Escape') return hideTip()
-        if (event.key !== 'Enter' && event.key !== ' ') return
+        if (!isActivationKey(event.key)) return
         const el = interactiveOf(event.target)
         if (!el) return
         event.preventDefault()
@@ -197,19 +212,17 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
       onBeforeUnmount(() => ownerDocument?.removeEventListener('click', onDocumentClick, true))
 
       // --- render ---
-      const selectedColor = () => props.selectedAreaColor || props.selectedProvinceColor
-
       return () => {
         const m = model.value
         const scale = m.mapScale
-        const selectedAreaColor = selectedColor()
-        const fillFor = (areaId: string, value: number | undefined, fill: string) =>
-          areaId === selectedId.value && selectedAreaColor && value !== undefined ? selectedAreaColor : fill
+        const metrics = getLabelMetrics(scale)
+        const selectedAreaColor = resolveSelectedAreaColor(props)
+        const showWater = props.showWater ?? iranMapDefaults.showWater
+        const showIslands = props.showIslands ?? iranMapDefaults.showIslands
+        const children: VNode[] = []
 
-        const svgChildren: VNode[] = []
-
-        if (props.showWater) {
-          svgChildren.push(
+        if (showWater) {
+          children.push(
             h('g', { class: 'iran-map-water-layer', 'aria-hidden': 'true' }, [
               ...m.waterBodies.map((water) =>
                 h('path', {
@@ -221,48 +234,46 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                 }),
               ),
               ...(props.showSeaLabels
-                ? m.waterBodies
-                    .filter((water) => water.showLabel !== false)
-                    .map((water) =>
-                      h(
-                        'g',
-                        {
-                          key: `water-label:${water.id}`,
-                          class: 'iran-map-water-label',
-                          transform: `translate(${water.labelX} ${water.labelY})`,
-                          fill: props.seaLabelColor,
-                        },
-                        [
-                          h(
-                            'text',
-                            {
-                              class: 'iran-map-water-label-fa',
-                              'text-anchor': 'middle',
-                              lang: 'fa',
-                              'font-size': 14 * scale,
-                            },
-                            water.faName,
-                          ),
-                          h(
-                            'text',
-                            {
-                              class: 'iran-map-water-label-en',
-                              y: 14 * scale,
-                              'text-anchor': 'middle',
-                              'font-size': 7 * scale,
-                            },
-                            water.name,
-                          ),
-                        ],
-                      ),
-                    )
+                ? getLabeledWaterBodies(m.waterBodies).map((water) =>
+                    h(
+                      'g',
+                      {
+                        key: `water-label:${water.id}`,
+                        class: 'iran-map-water-label',
+                        transform: `translate(${water.labelX} ${water.labelY})`,
+                        fill: props.seaLabelColor,
+                      },
+                      [
+                        h(
+                          'text',
+                          {
+                            class: 'iran-map-water-label-fa',
+                            'text-anchor': 'middle',
+                            lang: 'fa',
+                            'font-size': metrics.waterLabelFa.fontSize,
+                          },
+                          water.faName,
+                        ),
+                        h(
+                          'text',
+                          {
+                            class: 'iran-map-water-label-en',
+                            y: metrics.waterLabelEn.y,
+                            'text-anchor': 'middle',
+                            'font-size': metrics.waterLabelEn.fontSize,
+                          },
+                          water.name,
+                        ),
+                      ],
+                    ),
+                  )
                 : []),
             ]),
           )
         }
 
         if (m.landBackgrounds.length > 0) {
-          svgChildren.push(
+          children.push(
             h(
               'g',
               { class: 'iran-map-land-background', 'aria-hidden': 'true' },
@@ -280,11 +291,12 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
 
         m.areas.forEach((area, index) => {
           const tooltipText = getAreaTooltip(area, props.tooltipTitle)
-          svgChildren.push(
+          children.push(
             h('path', {
               key: `${area.type}:${area.id}:${index}`,
+              class: 'iran-map-area',
               d: area.path,
-              fill: fillFor(area.id, area.value, area.fill),
+              fill: getAreaFill(area, selectedId.value, selectedAreaColor),
               'fill-rule': 'evenodd',
               stroke: props.strokeColor,
               'stroke-width': props.strokeWidth,
@@ -294,21 +306,19 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
               role: 'button',
               'aria-pressed': area.id === selectedId.value,
               'aria-label': tooltipText,
-              'data-testid': `iran-map-${area.type}-${area.id}`,
+              'data-testid': getAreaTestId(area),
               'data-area-id': area.id,
               'data-area-type': area.type,
               'data-index': index,
               'data-tooltip-content': tooltipText,
-              class: 'iran-map-area',
             }),
           )
         })
 
-        if (props.showIslands) {
+        if (showIslands) {
           for (const island of m.islands) {
             const tooltipText = getIslandTooltip(island)
-            const selected = island.area.id === selectedId.value
-            svgChildren.push(
+            children.push(
               h(
                 'g',
                 {
@@ -317,7 +327,7 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                   tabindex: 0,
                   role: 'button',
                   'aria-label': tooltipText,
-                  'data-testid': `iran-map-island-${island.id}`,
+                  'data-testid': getIslandTestId(island),
                   'data-island-id': island.id,
                   'data-province-id': island.provinceId,
                   'data-county-id': island.countyId,
@@ -326,14 +336,16 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                   'data-tooltip-content': tooltipText,
                 },
                 [
-                  h('circle', { class: 'iran-map-island-hit', cx: island.labelX, cy: island.labelY, r: 6 * scale }),
+                  h('circle', {
+                    class: 'iran-map-island-hit',
+                    cx: island.labelX,
+                    cy: island.labelY,
+                    r: metrics.islandHitRadius,
+                  }),
                   h('path', {
                     class: 'iran-map-island-shape',
                     d: island.path,
-                    fill:
-                      selected && selectedAreaColor && island.area.value !== undefined
-                        ? selectedAreaColor
-                        : island.fill,
+                    fill: getIslandFill(island, selectedId.value, selectedAreaColor),
                     'fill-rule': 'evenodd',
                     stroke: props.strokeColor,
                     'stroke-width': props.strokeWidth,
@@ -346,11 +358,11 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                         {
                           class: 'iran-map-island-label',
                           x: island.labelX,
-                          y: island.labelY - 8 * scale,
+                          y: island.labelY + metrics.islandLabel.offsetY,
                           fill: props.textColor,
                           'text-anchor': 'middle',
-                          'font-size': 7 * scale,
-                          'stroke-width': 1.25 * scale,
+                          'font-size': metrics.islandLabel.fontSize,
+                          'stroke-width': metrics.islandLabel.strokeWidth,
                         },
                         island.faName,
                       )
@@ -362,9 +374,8 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
         }
 
         if (m.showLabels) {
-          for (const area of m.areas) {
-            if (area.type !== 'province' || area.labelX === undefined || area.labelY === undefined) continue
-            svgChildren.push(
+          for (const area of getProvinceLabelAreas(m.areas)) {
+            children.push(
               h(
                 'text',
                 {
@@ -375,8 +386,8 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                   fill: props.textColor,
                   'text-anchor': 'middle',
                   'dominant-baseline': 'middle',
-                  'font-size': 12 * scale,
-                  'stroke-width': 1.25 * scale,
+                  'font-size': metrics.provinceLabel.fontSize,
+                  'stroke-width': metrics.provinceLabel.strokeWidth,
                 },
                 area.faName,
               ),
@@ -385,10 +396,9 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
         }
 
         for (const capital of m.capitals) {
-          const baseSize = capital.areaType === 'province' ? props.capitalMarkerSize * 1.25 : props.capitalMarkerSize
-          const size = baseSize * scale
+          const marker = getCapitalMarkerGeometry(capital, props.capitalMarkerSize, scale)
           const tooltipText = getCapitalTooltip(capital)
-          svgChildren.push(
+          children.push(
             h(
               'g',
               {
@@ -398,7 +408,7 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                 tabindex: 0,
                 role: 'button',
                 'aria-label': tooltipText,
-                'data-testid': `iran-map-capital-${capital.areaType}-${capital.areaId}`,
+                'data-testid': getCapitalTestId(capital),
                 'data-capital-id': capital.id,
                 'data-area-id': capital.areaId,
                 'data-capital-type': capital.areaType,
@@ -407,26 +417,26 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                 'data-tooltip-content': tooltipText,
               },
               [
-                h('circle', { class: 'iran-map-capital-hit', r: Math.max(9, size * 2) }),
-                h('circle', { class: 'iran-map-capital-halo', r: size * 1.75 }),
-                capital.areaType === 'province'
-                  ? h('path', {
+                h('circle', { class: 'iran-map-capital-hit', r: marker.hitRadius }),
+                h('circle', { class: 'iran-map-capital-halo', r: marker.haloRadius }),
+                marker.shape === 'diamond'
+                  ? h('path', { class: 'iran-map-capital-core', d: marker.diamondPath, fill: props.capitalMarkerColor })
+                  : h('circle', {
                       class: 'iran-map-capital-core',
-                      d: `M0 ${-size * 1.35} L${size * 1.35} 0 L0 ${size * 1.35} L${-size * 1.35} 0 Z`,
+                      r: marker.coreRadius,
                       fill: props.capitalMarkerColor,
-                    })
-                  : h('circle', { class: 'iran-map-capital-core', r: size, fill: props.capitalMarkerColor }),
-                h('circle', { class: 'iran-map-capital-center', r: Math.max(1.1, size * 0.28) }),
+                    }),
+                h('circle', { class: 'iran-map-capital-center', r: marker.centerRadius }),
                 props.showCapitalLabels
                   ? h(
                       'text',
                       {
                         class: 'iran-map-capital-label',
-                        x: size * 2.2,
-                        y: -size * 1.5,
+                        x: marker.label.x,
+                        y: marker.label.y,
                         fill: props.textColor,
-                        'font-size': 10 * scale,
-                        'stroke-width': 1.25 * scale,
+                        'font-size': metrics.capitalLabel.fontSize,
+                        'stroke-width': metrics.capitalLabel.strokeWidth,
                       },
                       capital.faName,
                     )
@@ -436,7 +446,7 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
           )
         }
 
-        const width = props.width || 500
+        const width = props.width || iranMapDefaults.width
         return h(
           'div',
           {
@@ -463,7 +473,7 @@ export const createIranMap = (defaults: Partial<IranMapCatalogs>) => {
                 onFocusin,
                 onFocusout,
               },
-              svgChildren,
+              children,
             ),
             // Driven imperatively (see tooltip.ts); no reactive props so Vue never patches it.
             h('div', { ref: tooltipRef, class: 'iran-map-tooltip', role: 'tooltip', hidden: true }),

@@ -185,4 +185,13 @@ describe('IranMap', () => {
     expect(count('[data-water-id]')).toBe(0)
     expect(count('[data-island-id]')).toBe(0)
   })
+
+  it('warns once in development when the lean entry lacks a requested catalog', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { IranMap: LeanMap } = await import('../src')
+    mountAttached(LeanMap, { props: { mode: 'county', data: {}, showIslands: true } })
+
+    expect(count('[data-area-type="county"]')).toBe(0)
+    expect(warn.mock.calls.some(([message]) => String(message).includes('counties'))).toBe(true)
+  })
 })

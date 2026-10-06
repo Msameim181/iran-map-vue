@@ -28,7 +28,8 @@
     "dist",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "repository": {
     "type": "git",
@@ -89,5 +90,8 @@
     "vue": "^3.5.13",
     "vue-eslint-parser": "^9.4.3",
     "vue-tsc": "^3.0.0"
+  },
+  "dependencies": {
+    "@msameim181/iran-map-core": "file:../iran-map-core"
   }
 }

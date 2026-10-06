@@ -9,7 +9,7 @@ const aria = <T extends HTMLElement = HTMLInputElement>(label: string) => q<T>(`
 const flush = () => nextTick()
 
 const click = async (el: Element) => {
-  ;(el as HTMLElement).click()
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   await flush()
 }
 const type = async (input: HTMLInputElement | HTMLSelectElement, value: string) => {
@@ -145,7 +145,7 @@ describe('Demo county controls', () => {
     expect(byTestId('iran-map-county-razaviKhorasan.mashhad').getAttribute('aria-label')).toContain('Population: 92')
     expect(text('.score-readout > span')).toBe('Population')
     const counties = Array.from(document.querySelectorAll('[role="radio"]')).find((el) =>
-      /Counties 478/.test(el.textContent!),
+      /Counties.*478/.test(el.textContent!),
     )!
     await click(counties)
     expect(byTestId('iran-map-county-razaviKhorasan.mashhad').getAttribute('aria-label')).toContain('Population: 92')
